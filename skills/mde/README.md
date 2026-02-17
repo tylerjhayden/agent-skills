@@ -19,7 +19,7 @@ cp -r skills/mde ~/.claude/skills/mde
 ## Requirements
 
 - macOS
-- MacDown 3000 (macdown.uranusjr.com)
+- [MacDown 3000](https://github.com/schuyler/macdown3000) — download and install the latest release before using this skill
 - jq
 
 ## Overview
