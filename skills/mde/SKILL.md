@@ -40,7 +40,7 @@ mde help                # Show help
 
 ## Configuration
 
-Config file: `$PROJECT_HOME/state/mde/config.json`
+Config file: `~/.config/mde/config.json` (override with `$MDE_CONFIG_DIR`)
 
 ```json
 {

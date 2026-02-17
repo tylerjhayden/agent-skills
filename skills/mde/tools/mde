@@ -6,7 +6,7 @@
 
 set -e
 
-CONFIG_DIR="${PROJECT_HOME:-$HOME/my-project}/state/mde"
+CONFIG_DIR="${MDE_CONFIG_DIR:-$HOME/.config/mde}"
 CONFIG_FILE="$CONFIG_DIR/config.json"
 
 # Initialize config if missing
