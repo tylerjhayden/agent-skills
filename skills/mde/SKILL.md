@@ -21,7 +21,7 @@ Opens markdown files in MacDown 3000 with commands for finding recently modified
 
 ## Common Mistakes
 
-**Using full paths in exclusions.** The tool normalizes them, but prefer relative patterns like `history/sessions` over `~/my-project/history/sessions`.
+**Using full paths in exclusions.** The tool normalizes them, but prefer short patterns like `archive` over `~/Documents/archive`.
 
 ## CLI Usage
 
