@@ -1,0 +1,189 @@
+#!/bin/bash
+#
+# mde - MacDown 3000 CLI tool for Claude Code
+# Opens markdown files with smart recent-file features
+#
+
+set -e
+
+CONFIG_DIR="${PROJECT_HOME:-$HOME/my-project}/state/mde"
+CONFIG_FILE="$CONFIG_DIR/config.json"
+
+# Initialize config if missing
+init_config() {
+    if [[ ! -f "$CONFIG_FILE" ]]; then
+        mkdir -p "$CONFIG_DIR"
+        cat > "$CONFIG_FILE" << 'EOF'
+{
+  "version": 1,
+  "excludes": ["Library", ".Trash", ".cache", ".npm", ".docker", "node_modules", ".git", ".venv"],
+  "searchRoot": "~",
+  "maxDepth": 10,
+  "defaultRecentCount": 5
+}
+EOF
+    fi
+}
+
+# Get config value using jq
+get_config() {
+    local key="$1"
+    jq -r ".$key" "$CONFIG_FILE"
+}
+
+# Core search function - finds recent .md files
+find_recent_md() {
+    local count="${1:-5}"
+    local search_root
+    search_root=$(get_config searchRoot)
+    search_root="${search_root/#\~/$HOME}"
+
+    local max_depth
+    max_depth=$(get_config maxDepth)
+
+    # Build prune patterns from config excludes
+    local prune_args=""
+    while IFS= read -r pattern; do
+        if [[ -n "$pattern" ]]; then
+            prune_args="$prune_args -path '*/$pattern/*' -prune -o"
+        fi
+    done < <(jq -r '.excludes[]' "$CONFIG_FILE" 2>/dev/null)
+
+    # Always exclude hidden directories
+    prune_args="-path '*/.*' -prune -o $prune_args"
+
+    # Execute find with prune patterns
+    eval "find '$search_root' -maxdepth $max_depth $prune_args -type f -name '*.md' -print0" 2>/dev/null | \
+        xargs -0 stat -f "%m %N" 2>/dev/null | \
+        sort -rn | \
+        head -n "$count"
+}
+
+# Commands
+cmd_last() {
+    local result
+    result=$(find_recent_md 1)
+
+    if [[ -z "$result" ]]; then
+        echo "No markdown files found"
+        return 1
+    fi
+
+    local filepath
+    filepath=$(echo "$result" | cut -d' ' -f2-)
+    echo "Opening: ${filepath/#$HOME/~}"
+    open -a "MacDown 3000" "$filepath"
+}
+
+cmd_recent() {
+    local count="${1:-$(get_config defaultRecentCount)}"
+    echo "$count most recent markdown files:"
+
+    find_recent_md "$count" | while read -r timestamp filepath; do
+        local relpath="${filepath/#$HOME/~}"
+        local date
+        date=$(date -r "$timestamp" "+%Y-%m-%d %H:%M")
+        echo "  [$date] $relpath"
+    done
+}
+
+cmd_excludes() {
+    echo "Current exclusion patterns:"
+    jq -r '.excludes[]' "$CONFIG_FILE" | while read -r pattern; do
+        echo "  - $pattern"
+    done
+    echo ""
+    echo "(Hidden directories */.*  are always excluded)"
+}
+
+cmd_exclude() {
+    local pattern="$1"
+    if [[ -z "$pattern" ]]; then
+        echo "Usage: mde exclude <pattern>"
+        echo "Example: mde exclude history/sessions"
+        return 1
+    fi
+
+    # Normalize pattern: strip $HOME prefix, leading/trailing slashes
+    pattern="${pattern/#$HOME\//}"      # Strip $HOME/ prefix
+    pattern="${pattern/#\//}"           # Strip leading /
+    pattern="${pattern%/}"              # Strip trailing /
+
+    # Add pattern using jq
+    local tmp
+    tmp=$(mktemp)
+    if jq --arg p "$pattern" '.excludes += [$p] | .excludes |= unique' "$CONFIG_FILE" > "$tmp"; then
+        mv "$tmp" "$CONFIG_FILE"
+        echo "Added exclusion: $pattern"
+    else
+        rm -f "$tmp"
+        echo "Error: Failed to update config" >&2
+        return 1
+    fi
+}
+
+cmd_unexclude() {
+    local pattern="$1"
+    if [[ -z "$pattern" ]]; then
+        echo "Usage: mde unexclude <pattern>"
+        return 1
+    fi
+
+    # Remove pattern using jq
+    local tmp
+    tmp=$(mktemp)
+    if jq --arg p "$pattern" '.excludes -= [$p]' "$CONFIG_FILE" > "$tmp"; then
+        mv "$tmp" "$CONFIG_FILE"
+        echo "Removed exclusion: $pattern"
+    else
+        rm -f "$tmp"
+        echo "Error: Failed to update config" >&2
+        return 1
+    fi
+}
+
+cmd_help() {
+    cat << EOF
+mde - MacDown 3000 CLI for Claude Code
+
+Usage:
+  mde                     Open MacDown 3000
+  mde <file>              Open specific file in MacDown 3000
+  mde last                Open most recently modified .md file
+  mde recent [N]          List N most recent .md files (default: 5)
+  mde excludes            Show current exclusion patterns
+  mde exclude <pattern>   Add directory exclusion pattern
+  mde unexclude <pattern> Remove exclusion pattern
+  mde help                Show this help
+
+Config: $CONFIG_FILE
+EOF
+}
+
+# Main
+init_config
+
+case "${1:-}" in
+    last)
+        cmd_last
+        ;;
+    recent)
+        cmd_recent "${2:-}"
+        ;;
+    excludes)
+        cmd_excludes
+        ;;
+    exclude)
+        cmd_exclude "$2"
+        ;;
+    unexclude)
+        cmd_unexclude "$2"
+        ;;
+    help|--help|-h)
+        cmd_help
+        ;;
+    *)
+        # Default: open file or launch MacDown 3000
+        open -a "MacDown 3000" "$@"
+        ;;
+esac
