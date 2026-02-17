@@ -29,7 +29,7 @@ cp -r skills/bear ~/.claude/skills/bear
 
 ## Skill Format
 
-Every skill follows the [Agent Skills Specification](CONTRIBUTING.md):
+Every skill follows the [Agent Skills Specification](https://agentskills.io/specification):
 
 ```
 skills/<name>/

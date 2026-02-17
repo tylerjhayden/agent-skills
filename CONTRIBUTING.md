@@ -1,6 +1,6 @@
 # Contributing to Agent Skills
 
-Thanks for contributing! This guide covers the skill format spec and PR requirements.
+Thanks for contributing! This guide covers the skill format and PR requirements for this repo, following the [Agent Skills Specification](https://agentskills.io/specification).
 
 ## Skill Format
 
