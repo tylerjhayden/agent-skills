@@ -2,7 +2,7 @@
 
 > Fetches real-time claude.ai session and weekly usage limits using headless Playwright to bypass Cloudflare TLS fingerprinting, then displays progress bars per model tier. Includes a background poller that keeps a cache file fresh for statusline integration.
 >
-> Part of [agent-skills](https://github.com/tylerjhayden/agent-skills)
+> Part of [agent-toolkit](https://github.com/tylerjhayden/agent-toolkit)
 
 ## Installation
 
