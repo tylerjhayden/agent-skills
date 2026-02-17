@@ -6,25 +6,19 @@
 
 ## Installation
 
-Copy the skill directory into your Claude Code project:
-
 ```bash
-# From the agent-skills repo
-cp -r skills/claude-usage .claude/skills/claude-usage
+# Clone the repo (or download just this directory)
+git clone https://github.com/tylerjhayden/agent-toolkit
 
-# Or user-level (available across all projects)
-cp -r skills/claude-usage ~/.claude/skills/claude-usage
+# Symlink the script onto your PATH
+ln -s /path/to/agent-toolkit/tools/claude-usage/claude-usage.ts ~/bin/claude-usage
+chmod +x ~/bin/claude-usage
+
+# Install Playwright's Chromium (one-time)
+bunx playwright install chromium
 ```
 
-Then alias the CLI so it's available in your shell:
-
-```bash
-# Add to ~/.zshrc or ~/.bash_profile
-alias claude-usage="/path/to/.claude/skills/claude-usage/tools/claude-usage.ts"
-source ~/.zshrc
-```
-
-The AI can invoke `claude-usage` via its Bash tool without the alias. The alias is for you — so you can run it directly in your terminal and use it in statusline scripts.
+Both you and Claude Code can invoke `claude-usage` directly once it's on your PATH.
 
 ## Requirements
 
@@ -94,17 +88,6 @@ claude.ai usage — 10:42 AM
   Sonnet only (7d)
   [█████░░░░░░░░░░░░░░░░░░░░░░░] 19%  resets in 4d 6h
 ```
-
-## When to Use
-
-**Trigger Phrases:**
-- "claude usage"
-- "check usage"
-- "how much context left"
-- "session limit" / "usage limits"
-- "quota"
-- "when does my session reset"
-- "am I close to my limit"
 
 ## Statusline Integration
 
