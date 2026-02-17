@@ -1,0 +1,36 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Environment & secrets
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+
+# Credentials
+credentials.*
+service-account*.json
+id_rsa*
+id_ed25519*
+id_ecdsa*
+.npmrc
+.pypirc
+.netrc
+*.secret
+
+# Temp
+*.tmp
+*.bak
+*.log

@@ -1,0 +1,122 @@
+name: Security Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  secret-scan:
+    name: Secret & Leak Detection
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  internal-refs:
+    name: Internal Reference Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for internal references
+        run: |
+          echo "🔍 Scanning for internal references..."
+          FAILED=0
+
+          # Patterns that should NEVER appear (excluding this workflow file itself)
+          check_pattern() {
+            local pattern="$1"
+            local description="$2"
+            local exclude_self="$3"
+
+            local matches
+            if [[ "$exclude_self" == "true" ]]; then
+              matches=$(grep -rn "$pattern" --include='*.md' --include='*.sh' --include='*.yaml' --include='*.yml' --include='*.json' --include='*.toml' . \
+                | grep -v '.github/workflows/security.yml' \
+                | grep -v '.githooks/pre-commit' \
+                | grep -v '.gitleaks.toml' \
+                | grep -v 'tylerjhayden' \
+                || true)
+            else
+              matches=$(grep -rn "$pattern" --include='*.md' --include='*.sh' --include='*.yaml' --include='*.yml' --include='*.json' --include='*.toml' . || true)
+            fi
+
+            if [[ -n "$matches" ]]; then
+              echo "❌ Found '$description':"
+              echo "$matches"
+              echo ""
+              FAILED=1
+            fi
+          }
+
+          check_pattern '/Users/[a-zA-Z]' 'Hardcoded macOS home directory path' true
+          check_pattern '/home/[a-zA-Z]' 'Hardcoded Linux home directory path' true
+          check_pattern 'Minerva' 'Internal project reference (case-sensitive)' true
+          check_pattern 'minerva' 'Internal project reference (lowercase)' true
+
+          if [[ $FAILED -eq 1 ]]; then
+            echo ""
+            echo "❌ Internal references found! These must be sanitized before merging."
+            exit 1
+          else
+            echo "✅ No internal references found"
+          fi
+
+  dangerous-files:
+    name: Dangerous File Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for dangerous files
+        run: |
+          echo "🔍 Scanning for dangerous files..."
+          FAILED=0
+
+          # Check for files that should never be in a public repo
+          DANGEROUS_PATTERNS=(
+            '*.pem'
+            '*.key'
+            '*.p12'
+            '*.pfx'
+            '*.jks'
+            '*.keystore'
+            '.env'
+            '.env.*'
+            'credentials.*'
+            'service-account*.json'
+            'id_rsa*'
+            'id_ed25519*'
+            'id_ecdsa*'
+            '*.npmrc'
+            '.pypirc'
+            '.netrc'
+          )
+
+          for pattern in "${DANGEROUS_PATTERNS[@]}"; do
+            matches=$(find . -name "$pattern" -not -path './.git/*' 2>/dev/null || true)
+            if [[ -n "$matches" ]]; then
+              echo "❌ Dangerous file found matching '$pattern':"
+              echo "$matches"
+              FAILED=1
+            fi
+          done
+
+          if [[ $FAILED -eq 1 ]]; then
+            echo ""
+            echo "❌ Dangerous files detected! Remove them before merging."
+            exit 1
+          else
+            echo "✅ No dangerous files found"
+          fi

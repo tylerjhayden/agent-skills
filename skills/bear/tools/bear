@@ -1,0 +1,418 @@
+#!/bin/bash
+#
+# bear - Bear.app CLI bridge for Claude Code
+# Import via URL scheme (safe), export via read-only SQLite queries (safe)
+#
+
+set -e
+
+DB_PATH="$HOME/Library/Group Containers/9K33E3U3T4.net.shinyfrog.bear/Application Data/database.sqlite"
+IMAGE_BASE="$HOME/Library/Group Containers/9K33E3U3T4.net.shinyfrog.bear/Application Data/Local Files/Note Images"
+
+# Core Data epoch offset: 2001-01-01 00:00:00 UTC in Unix time
+COREDATA_EPOCH=978307200
+
+# --- Helpers ---
+
+urlencode() {
+    if ! command -v python3 &>/dev/null; then
+        echo "Error: python3 required for URL encoding but not found" >&2
+        return 1
+    fi
+    python3 -c "import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=''))" "$1"
+}
+
+slugify() {
+    echo "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//'
+}
+
+check_db() {
+    if [[ ! -f "$DB_PATH" ]]; then
+        echo "Error: Bear database not found at expected path." >&2
+        echo "Is Bear.app installed?" >&2
+        exit 1
+    fi
+}
+
+check_bear_running() {
+    if ! pgrep -q "Bear" 2>/dev/null; then
+        echo "Warning: Bear.app does not appear to be running. URL scheme commands may not be received." >&2
+    fi
+}
+
+query_db() {
+    local result
+    if ! result=$(sqlite3 -separator '|' "$DB_PATH" "$1" 2>&1); then
+        echo "Error: SQLite query failed: $result" >&2
+        return 1
+    fi
+    echo "$result"
+}
+
+coredata_to_date() {
+    local ts="$1"
+    local unix_ts
+    # Core Data timestamps are seconds since 2001-01-01
+    unix_ts=$(echo "$ts" | awk -v epoch="$COREDATA_EPOCH" '{printf "%d", $1 + epoch}')
+    date -r "$unix_ts" "+%Y-%m-%d %H:%M"
+}
+
+relative_date() {
+    local ts="$1"
+    local unix_ts now diff
+    unix_ts=$(echo "$ts" | awk -v epoch="$COREDATA_EPOCH" '{printf "%d", $1 + epoch}')
+    now=$(date +%s)
+    diff=$((now - unix_ts))
+
+    if (( diff < 60 )); then
+        echo "just now"
+    elif (( diff < 3600 )); then
+        echo "$((diff / 60))m ago"
+    elif (( diff < 86400 )); then
+        echo "$((diff / 3600))h ago"
+    elif (( diff < 604800 )); then
+        echo "$((diff / 86400))d ago"
+    else
+        date -r "$unix_ts" "+%Y-%m-%d"
+    fi
+}
+
+get_project_tag() {
+    local filepath="$1"
+    filepath=$(cd "$(dirname "$filepath")" && pwd)/$(basename "$filepath")
+
+    # Only derive tags from paths under $HOME
+    if [[ "$filepath" != "$HOME/"* ]]; then
+        return
+    fi
+
+    # Extract project directory from path
+    # ~/my-project/... -> my-project
+    # ~/Projects/unbound/... -> unbound
+    local rel="${filepath#$HOME/}"
+    local project
+    project=$(echo "$rel" | cut -d'/' -f1)
+
+    # If under Projects/, use the subdirectory name
+    if [[ "$project" == "Projects" ]]; then
+        project=$(echo "$rel" | cut -d'/' -f2)
+    fi
+
+    # Skip if project name is empty or a bare filename
+    [[ -z "$project" ]] && return
+
+    echo "$project" | tr '[:upper:]' '[:lower:]'
+}
+
+resolve_images() {
+    local text="$1"
+    local output_dir="$2"
+
+    # Find all [image:UUID/filename.png] patterns
+    echo "$text" | while IFS= read -r line; do
+        if [[ "$line" =~ \[image:([^/]+)/([^\]]+)\] ]]; then
+            local uuid="${BASH_REMATCH[1]}"
+            local filename="${BASH_REMATCH[2]}"
+            local src="$IMAGE_BASE/$uuid/$filename"
+            local dest="$output_dir/images/$filename"
+
+            if [[ -f "$src" ]]; then
+                mkdir -p "$output_dir/images"
+                cp "$src" "$dest"
+            else
+                echo "Warning: Image not found: $src" >&2
+            fi
+
+            # Replace Bear syntax with standard markdown
+            line="${line//\[image:$uuid\/$filename\]/!\[\](./images/$filename)}"
+        fi
+        echo "$line"
+    done
+}
+
+# --- Commands ---
+
+cmd_send() {
+    local file="$1"
+    if [[ -z "$file" ]]; then
+        echo "Usage: bear send <file.md>"
+        return 1
+    fi
+
+    if [[ ! -f "$file" ]]; then
+        echo "Error: File not found: $file" >&2
+        return 1
+    fi
+
+    check_db
+
+    local content
+    content=$(cat "$file")
+
+    # Extract title from first H1 line, fallback to filename
+    local title
+    title=$(echo "$content" | grep -m1 '^# ' | sed 's/^# //' || true)
+    if [[ -z "$title" ]]; then
+        title=$(basename "$file" .md)
+    fi
+
+    # Check if note already exists
+    local existing_uuid
+    existing_uuid=$(query_db "SELECT ZUNIQUEIDENTIFIER FROM ZSFNOTE WHERE ZTITLE = '$(echo "$title" | sed "s/'/''/g")' AND ZTRASHED = 0 LIMIT 1;")
+
+    local encoded_content
+    encoded_content=$(urlencode "$content")
+
+    check_bear_running
+
+    if [[ -n "$existing_uuid" ]]; then
+        # Update existing note
+        local url="bear://x-callback-url/add-text?id=${existing_uuid}&text=${encoded_content}&mode=replace_all"
+        open "$url"
+        echo "Updated: \"$title\" ($existing_uuid)"
+    else
+        # Create new note
+        local tag
+        tag=$(get_project_tag "$file")
+        local encoded_title
+        encoded_title=$(urlencode "$title")
+
+        local url="bear://x-callback-url/create?title=${encoded_title}&text=${encoded_content}"
+        if [[ -n "$tag" ]]; then
+            local encoded_tag
+            encoded_tag=$(urlencode "$tag")
+            url="${url}&tags=${encoded_tag}"
+        fi
+        open "$url"
+
+        if [[ -n "$tag" ]]; then
+            echo "Created: \"$title\" (tagged: #$tag)"
+        else
+            echo "Created: \"$title\""
+        fi
+    fi
+}
+
+cmd_pull() {
+    local title="$1"
+    local output_path="$2"
+
+    if [[ -z "$title" ]]; then
+        echo "Usage: bear pull <title> [output-path]"
+        return 1
+    fi
+
+    check_db
+
+    local result
+    result=$(query_db "SELECT ZTEXT, ZUNIQUEIDENTIFIER FROM ZSFNOTE WHERE ZTITLE = '$(echo "$title" | sed "s/'/''/g")' AND ZTRASHED = 0 LIMIT 1;")
+
+    if [[ -z "$result" ]]; then
+        echo "Error: Note not found: \"$title\"" >&2
+        return 1
+    fi
+
+    local text uuid
+    # Split on first pipe only (text may contain pipes)
+    uuid="${result##*|}"
+    text="${result%|*}"
+
+    # Determine output path
+    if [[ -z "$output_path" ]]; then
+        output_path="./$(slugify "$title").md"
+    fi
+
+    local output_dir
+    output_dir=$(dirname "$output_path")
+    mkdir -p "$output_dir"
+
+    # Resolve images and clean Bear syntax
+    local cleaned
+    cleaned=$(resolve_images "$text" "$output_dir")
+
+    echo "$cleaned" > "$output_path"
+    echo "Pulled: \"$title\" -> $output_path"
+
+    # Report images if any were copied
+    if [[ -d "$output_dir/images" ]]; then
+        local img_count
+        img_count=$(ls -1 "$output_dir/images" 2>/dev/null | wc -l | tr -d ' ')
+        echo "  Images: $img_count files copied to $output_dir/images/"
+    fi
+}
+
+cmd_pull_all() {
+    local output_dir="${1:-./bear-export}"
+
+    check_db
+
+    mkdir -p "$output_dir"
+
+    local count=0
+    local query="SELECT ZTITLE, ZTEXT FROM ZSFNOTE WHERE ZTRASHED = 0 AND ZPERMANENTLYDELETED = 0 ORDER BY ZMODIFICATIONDATE DESC;"
+
+    # Use null separator for safety
+    while IFS='|' read -r title text; do
+        [[ -z "$title" ]] && continue
+
+        local slug
+        slug=$(slugify "$title")
+        local filepath="$output_dir/${slug}.md"
+
+        # Resolve images
+        local cleaned
+        cleaned=$(resolve_images "$text" "$output_dir")
+
+        echo "$cleaned" > "$filepath"
+        count=$((count + 1))
+    done < <(query_db "$query")
+
+    echo "Exported $count notes to $output_dir/"
+}
+
+cmd_open() {
+    local title="$1"
+    if [[ -z "$title" ]]; then
+        echo "Usage: bear open <title>"
+        return 1
+    fi
+
+    check_db
+
+    local uuid
+    uuid=$(query_db "SELECT ZUNIQUEIDENTIFIER FROM ZSFNOTE WHERE ZTITLE = '$(echo "$title" | sed "s/'/''/g")' AND ZTRASHED = 0 LIMIT 1;")
+
+    if [[ -z "$uuid" ]]; then
+        echo "Error: Note not found: \"$title\"" >&2
+        return 1
+    fi
+
+    check_bear_running
+    open "bear://x-callback-url/open-note?id=$uuid"
+    echo "Opened: \"$title\""
+}
+
+cmd_search() {
+    local query="$1"
+    if [[ -z "$query" ]]; then
+        echo "Usage: bear search <query>"
+        return 1
+    fi
+
+    check_bear_running
+    local encoded
+    encoded=$(urlencode "$query")
+    open "bear://x-callback-url/search?term=$encoded"
+    echo "Searching Bear for: \"$query\""
+}
+
+cmd_recent() {
+    local limit="${1:-10}"
+
+    if ! [[ "$limit" =~ ^[0-9]+$ ]]; then
+        echo "Error: Expected a number for recent count, got: \"$limit\"" >&2
+        return 1
+    fi
+
+    check_db
+
+    local query="SELECT ZTITLE, ZMODIFICATIONDATE FROM ZSFNOTE WHERE ZTRASHED = 0 AND ZPERMANENTLYDELETED = 0 ORDER BY ZMODIFICATIONDATE DESC LIMIT $limit;"
+
+    local i=1
+    while IFS='|' read -r title mod_date; do
+        [[ -z "$title" ]] && continue
+        local rel
+        rel=$(relative_date "$mod_date")
+        printf "  %2d. %-50s %s\n" "$i" "$title" "$rel"
+        i=$((i + 1))
+    done < <(query_db "$query")
+}
+
+cmd_list() {
+    shift  # Remove 'list' from args
+
+    check_db
+
+    local tag=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --tag)
+                if [[ -z "${2:-}" ]]; then
+                    echo "Error: --tag requires a value" >&2
+                    return 1
+                fi
+                tag="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    local query
+    if [[ -n "$tag" ]]; then
+        query="SELECT n.ZTITLE FROM ZSFNOTE n JOIN Z_5TAGS zt ON n.Z_PK = zt.Z_5NOTES JOIN ZSFNOTETAG t ON zt.Z_13TAGS = t.Z_PK WHERE n.ZTRASHED = 0 AND t.ZTITLE = '$(echo "$tag" | sed "s/'/''/g")' ORDER BY n.ZTITLE;"
+    else
+        query="SELECT ZTITLE FROM ZSFNOTE WHERE ZTRASHED = 0 AND ZPERMANENTLYDELETED = 0 ORDER BY ZTITLE;"
+    fi
+
+    local i=1
+    while IFS= read -r title; do
+        [[ -z "$title" ]] && continue
+        printf "  %2d. %s\n" "$i" "$title"
+        i=$((i + 1))
+    done < <(query_db "$query")
+
+    local total=$((i - 1))
+    if [[ -n "$tag" ]]; then
+        echo ""
+        echo "$total notes tagged #$tag"
+    else
+        echo ""
+        echo "$total notes total"
+    fi
+}
+
+cmd_help() {
+    cat << 'EOF'
+bear - Bear.app CLI bridge for Claude Code
+
+Usage:
+  bear <file.md>                Send markdown file to Bear (shortcut)
+  bear send <file.md>           Send/update markdown file in Bear
+  bear pull <title> [path]      Pull note from Bear to filesystem
+  bear pull-all [path]          Export all notes (default: ./bear-export/)
+  bear open <title>             Open note in Bear
+  bear search <query>           Search in Bear
+  bear recent [N]               List N most recent notes (default: 10)
+  bear list [--tag <tag>]       List all notes, optionally filtered by tag
+  bear help                     Show this help
+
+Import: URL scheme (never writes to SQLite — preserves CloudKit sync)
+Export: Read-only SQLite queries (always safe)
+EOF
+}
+
+# --- Main ---
+
+check_db
+
+case "${1:-}" in
+    send)       cmd_send "$2" ;;
+    pull)       cmd_pull "$2" "${3:-}" ;;
+    pull-all)   cmd_pull_all "${2:-./bear-export}" ;;
+    open)       cmd_open "$2" ;;
+    search)     cmd_search "$2" ;;
+    recent)     cmd_recent "${2:-10}" ;;
+    list)       cmd_list "$@" ;;
+    help|--help|-h) cmd_help ;;
+    *)
+        # If arg is a .md file, treat as `bear send`
+        if [[ -f "${1:-}" && "${1:-}" == *.md ]]; then
+            cmd_send "$1"
+        else
+            cmd_help
+        fi
+        ;;
+esac
