@@ -39,7 +39,33 @@ export MDE_CONFIG_DIR="$HOME/.config/mde"   # default — change to taste
 alias mde="/path/to/.claude/skills/mde/tools/mde"
 ```
 
-## How search works
+The AI can invoke `mde` via its Bash tool without the alias. The alias is for you — so you can open files from your terminal the same way the AI does.
+
+## Overview
+
+Opens markdown files in MacDown 3000 with commands for finding recently modified files across the home directory. Supports configurable directory exclusions and path normalization for absolute paths.
+
+## Quick Reference
+
+```bash
+mde                     # Open MacDown 3000
+mde <file>              # Open specific file
+mde last                # Open most recently modified .md
+mde recent [N]          # List N most recent .md files (default: 5)
+mde excludes            # Show exclusion patterns
+mde exclude <pattern>   # Add exclusion
+mde unexclude <pattern> # Remove exclusion
+mde help                # Show help
+```
+
+## When to Use
+
+- "Open this file in MacDown 3000"
+- "What markdown files did I edit recently?"
+- "Open my most recent markdown file"
+- "Exclude this directory from mde searches"
+
+## How Search Works
 
 `mde` uses an **exclusion-first** approach: it searches your entire home directory by default, then prunes directories you specify. You don't have to enumerate every project folder — just tell it what to ignore.
 
@@ -47,6 +73,8 @@ Two knobs in `config.json`:
 
 - **`searchRoot`** — where to start. Default `~`. Narrow to `~/Documents` or `~/Projects` if your markdown is well-organized and you want faster results.
 - **`excludes`** — directory name patterns to skip. Matched anywhere in the path, so `node_modules` prunes every `node_modules/` across your whole tree.
+
+Hidden directories (`*/.*`) are always excluded automatically.
 
 Good starting exclusions:
 
@@ -56,16 +84,20 @@ Good starting exclusions:
 
 Prefer short, type-based patterns (`archive`, `vendor`, `build`) over project-specific paths. They stay accurate as your directory structure evolves.
 
-## Overview
+## Configuration
 
-Opens markdown files in MacDown 3000 with commands for finding recently modified files across the home directory. Supports configurable directory exclusions and path normalization for absolute paths.
+Config file: `~/.config/mde/config.json` (override with `$MDE_CONFIG_DIR`)
 
-## When to Use
+```json
+{
+  "excludes": ["Library", ".Trash", "node_modules"],
+  "searchRoot": "~",
+  "maxDepth": 10,
+  "defaultRecentCount": 5
+}
+```
 
-- "Open this file in MacDown 3000"
-- "What markdown files did I edit recently?"
-- "Open my most recent markdown file"
-- "Exclude this directory from mde searches"
+You can also manage exclusions interactively via `mde exclude <pattern>` and `mde unexclude <pattern>` — no need to edit the JSON file directly.
 
 ## License
 

@@ -15,7 +15,15 @@
 
 import { chromium } from 'playwright';
 import { execSync, execFileSync } from 'node:child_process';
-import { existsSync, statSync, mkdirSync, writeFileSync, renameSync, rmSync, chmodSync } from 'node:fs';
+import {
+  existsSync,
+  statSync,
+  mkdirSync,
+  writeFileSync,
+  renameSync,
+  rmSync,
+  chmodSync,
+} from 'node:fs';
 import { join } from 'node:path';
 
 // ─── Runtime paths ────────────────────────────────────────────────────────────

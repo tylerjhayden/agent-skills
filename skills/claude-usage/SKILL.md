@@ -3,7 +3,7 @@ name: claude-usage
 description: Use when user says "claude usage", "check usage", "how much context left",
   "session limit", "usage limits", "quota", "when does my session reset", or wants
   to know their current claude.ai usage percentage.
-version: 1.0.1
+version: 1.0.2
 ---
 
 # claude-usage

@@ -16,6 +16,16 @@ cp -r skills/bear .claude/skills/bear
 cp -r skills/bear ~/.claude/skills/bear
 ```
 
+Then alias the CLI so it's available in your shell:
+
+```bash
+# Add to ~/.zshrc or ~/.bash_profile
+alias bear="/path/to/.claude/skills/bear/tools/bear"
+source ~/.zshrc
+```
+
+The AI can invoke `bear` via its Bash tool without the alias. The alias is for you — so you can run the same commands directly in your terminal.
+
 ## Requirements
 
 - macOS
@@ -25,18 +35,11 @@ cp -r skills/bear ~/.claude/skills/bear
 
 ## Overview
 
+Sends markdown files into Bear for editing (via URL scheme) and pulls Bear notes back to the filesystem as clean markdown (via read-only SQLite queries).
 
-Sends markdown files into Bear for editing (via URL scheme) and pulls Bear notes back to the filesystem as clean markdown (via read-only SQLite queries). Import never touches the database directly — it uses Bear's URL scheme to preserve CloudKit sync. Export is always read-only.
-## When to Use
+**Why URL scheme for writes?** Bear syncs via CloudKit. Writing directly to the SQLite database bypasses Bear's sync engine and risks data corruption or lost notes. The URL scheme lets Bear handle the write itself — CloudKit stays happy. Export is read-only SQLite and is safe.
 
-
-- "Send this to Bear" / "Open in Bear"
-- "Pull my Bear notes" / "Export from Bear"
-- "What are my recent Bear notes?"
-- "Find Bear notes tagged with X"
-- "Open this note in Bear"
 ## Quick Reference
-
 
 ```bash
 bear <file.md>                # Send file to Bear (shortcut for send)
@@ -61,8 +64,22 @@ bear help                     # Show help
 | `search <query>` | Open Bear's search UI with query |
 | `recent [N]` | List N most recently modified notes with relative timestamps |
 | `list [--tag tag]` | List all notes or filter by tag |
-## Examples
 
+### Send Behavior
+
+- Title extracted from first `# H1` heading; falls back to filename
+- If a note with the same title exists: updates it via `replace_all` mode
+- If new: creates the note and tags it from your directory path (`~/Projects/unbound/` → `#unbound`)
+
+## When to Use
+
+- "Send this to Bear" / "Open in Bear"
+- "Pull my Bear notes" / "Export from Bear"
+- "What are my recent Bear notes?"
+- "Find Bear notes tagged with X"
+- "Open this note in Bear"
+
+## Examples
 
 **Edit a project doc in Bear's editor, then pull it back:**
 ```bash
@@ -74,7 +91,7 @@ bear pull "Architecture" docs/architecture.md   # Pull back with clean markdown
 **Quick lookup of recent notes:**
 ```bash
 bear recent 5                      # What have I been working on?
-bear list --tag work            # All project-related notes
+bear list --tag work               # All project-related notes
 bear open "Meeting Notes"          # Jump straight into Bear
 ```
 
@@ -83,10 +100,14 @@ bear open "Meeting Notes"          # Jump straight into Bear
 bear pull-all ~/Desktop/bear-backup/   # Export everything with images
 ```
 
-### Integration
+## Common Mistakes
 
-- Project tags auto-derived from your directory structure (`~/my-project/` -> `#my-project`, `~/Projects/unbound/` -> `#unbound`)
-- Stateless — no state files, so no conflicts with other skills
+**Quoting titles with special characters.** Always wrap Bear note titles in quotes when they contain spaces or punctuation: `bear open "My Note Title"`.
+
+**Expecting instant sync on send.** Bear processes URL scheme requests asynchronously. The note may take a moment to appear after `bear send`.
+
+**Running pull-all into a tracked directory.** Export dumps many files — use a scratch directory or `./bear-export/` (the default) to avoid polluting git repos.
+
 ## License
 
 MIT — see [LICENSE](../../LICENSE).

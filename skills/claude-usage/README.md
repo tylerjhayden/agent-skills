@@ -16,12 +16,28 @@ cp -r skills/claude-usage .claude/skills/claude-usage
 cp -r skills/claude-usage ~/.claude/skills/claude-usage
 ```
 
+Then alias the CLI so it's available in your shell:
+
+```bash
+# Add to ~/.zshrc or ~/.bash_profile
+alias claude-usage="/path/to/.claude/skills/claude-usage/tools/claude-usage.ts"
+source ~/.zshrc
+```
+
+The AI can invoke `claude-usage` via its Bash tool without the alias. The alias is for you — so you can run it directly in your terminal and use it in statusline scripts.
+
 ## Requirements
 
 - macOS
 - Bun (bun.sh)
 - Playwright for Bun (`bunx playwright install chromium`)
 - macOS Keychain (security CLI)
+
+## Why Playwright?
+
+claude.ai's API returns 403 when called directly with `fetch` or `curl`. Cloudflare detects standard HTTP clients by their TLS fingerprint before the request even reaches the server. This tool uses headless Chromium (via Playwright) to acquire a Cloudflare clearance cookie, then injects your `sessionKey` cookie and fetches the usage API. There's no other reliable way to reach it programmatically.
+
+After a successful fetch, the browser state (cookies, localStorage) is saved to `runtime/claude-usage/browser-state.json`. Subsequent fetches within 90 minutes load that state and skip the warm-up page — cutting fetch time from ~8–10s to ~2–4s.
 
 ## What It Does
 
@@ -32,12 +48,29 @@ cp -r skills/claude-usage ~/.claude/skills/claude-usage
 - **Cache mode:** Writes structured JSON to `runtime/claude-usage/cache.json` for statusline integration
 - **Background poller:** Session-aware LaunchAgent — only fetches when Claude Code is running, adapts interval based on utilization
 
+## First-Time Setup
+
+```bash
+claude-usage setup
+```
+
+This prompts for two values and stores them in macOS Keychain (never on disk):
+
+**`sessionKey`** — your claude.ai session cookie:
+1. Open [claude.ai](https://claude.ai) in Chrome
+2. Open DevTools → Application → Cookies → `claude.ai`
+3. Find the cookie named `sessionKey` and copy its value
+
+**`orgId`** — your organization UUID:
+1. Open [claude.ai/settings/usage](https://claude.ai/settings/usage)
+2. Open DevTools → Network → reload the page
+3. Find the `usage` API call — the org UUID is in the URL path
+
+You'll re-run setup approximately every 30 days when the `sessionKey` expires.
+
 ## Usage
 
 ```bash
-# First-time setup — prompts for sessionKey and orgId, stores in Keychain
-claude-usage setup
-
 # Check usage (human-readable progress bars)
 claude-usage
 
@@ -88,7 +121,7 @@ Claude Code supports a custom statusline via `.claude/settings.json`. Point it a
 }
 ```
 
-The poller writes `runtime/claude-usage/cache.json` after every fetch. Your statusline script reads it and formats the output however you like. Here's an example of how I integrate it in my own setup — the usage segment appended to a statusline that already shows model, branch, and context window:
+The poller writes `runtime/claude-usage/cache.json` after every fetch. Your statusline script reads it and formats the output however you like. Example of what integrated output looks like:
 
 ```
 Sonnet 4.5 | main | 27% ctx | 25% 22m↺       # fresh — session utilization + time to reset
@@ -114,9 +147,9 @@ Sonnet 4.5 | main | 27% ctx                   # no cache yet (poller hasn't run)
 
 ## Background Poller
 
-> **Customization required:** Replace `my-project` with your own project directory name and `com.myproject` with your own reverse-domain identifier (e.g., `com.yourname`) throughout the poller script and plist before use.
+> **Customization required:** Replace `my-project` with your project directory name and `com.myproject` with your own reverse-domain identifier (e.g., `com.yourname`) throughout the poller script and plist before installing.
 
-The LaunchAgent fires every 2 minutes but exits in <100ms when Claude Code isn't running. When active, it adapts the fetch interval to utilization:
+The LaunchAgent fires every 2 minutes but exits in <100ms when Claude Code isn't running. When active, it adapts fetch frequency to utilization:
 
 - **< 80%** → fetch every ~10 min
 - **≥ 80%** → fetch every ~2 min
@@ -138,7 +171,7 @@ launchctl unload ~/Library/LaunchAgents/com.myproject.claude-usage-poller.plist
 
 ## Error Recovery — Session Expiry (~30-day cycle)
 
-When `sessionKey` expires:
+When `sessionKey` expires, the failure surfaces at every level:
 
 1. **Poller error log** (`logs/claude-usage-poller-error.log`) shows:
    ```
