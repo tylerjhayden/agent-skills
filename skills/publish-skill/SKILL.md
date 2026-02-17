@@ -1,16 +1,16 @@
 ---
 name: publish-skill
-description: Publish skills to public agent-skills repo. Use when user says "publish skill", "push to marketplace", or wants to share skills publicly.
-version: 1.0.0
+description: Publish skills and tools to the public agent-toolkit repo. Use when user says "publish skill", "push to marketplace", or wants to share skills publicly.
+version: 1.0.1
 ---
 
 # publish-skill
 
-Sanitize and publish Claude Code skills to a public agent-skills GitHub repo.
+Sanitize and publish your skills and tools to the public agent-toolkit GitHub repo.
 
 ## Overview
 
-Automates the process of taking a private skill, stripping internal references (paths, names, cross-references), generating user-facing docs, and pushing to a public repo. Tracks versions and file hashes to detect changes.
+Automates the process of taking a private skill or tool, stripping internal references (paths, names, cross-references), generating user-facing docs, and pushing to the `your-username/agent-toolkit` public repo. Tracks versions and file hashes to detect changes.
 
 ## When to Use
 
@@ -53,7 +53,6 @@ When a README needs this level of detail, set `preserve_readme: true` in the man
 ## CLI Tool
 
 **Alias:** `publish-skill`
-**Location:** `.claude/skills/publish-skill/tools/publish-skill`
 **Requirements:** bash, jq, rsync, git
 
 ### Quick Reference
@@ -72,7 +71,7 @@ publish-skill help                       # Show help
 
 | Command | Description |
 |---------|-------------|
-| `publish <name>` | Sanitize skill, security scan, copy to agent-skills, bump version, commit and push |
+| `publish <name>` | Sanitize skill/tool, security scan, copy to agent-toolkit, bump version, commit and push |
 | `publish <name> --dry-run` | Sanitize and scan only — inspect output without committing |
 | `publish <name> --force` | Publish even if source hashes are unchanged |
 | `list` | Show all skills in manifest with version and publish status |
@@ -85,14 +84,15 @@ publish-skill help                       # Show help
 1. Verify skill exists in manifest
 2. Compute SHA256 hashes of all source files
 3. Skip if unchanged (use `--force` to override)
-4. Copy skill to `~/Projects/agent-skills/skills/<name>/`
+4. Copy skill to `~/your-agent-toolkit-repo/<category>/<name>/`
 5. Apply sanitization (default rules + per-skill overrides)
-6. Run security scan — **hard stop** on any finding (all failures collected before aborting)
-7. Generate README.md from sanitized SKILL.md
-8. Prompt for version bump (patch/minor/major)
-9. Update manifest with hashes, version, timestamp
-10. Update top-level README.md catalog table
-11. Git commit and push in agent-skills repo
+6. If `category: "tools"`: remove SKILL.md from published artifact
+7. Run security scan — **hard stop** on any finding (all failures collected before aborting)
+8. Generate README.md from sanitized SKILL.md (skipped for tools — must use `preserve_readme: true`)
+9. Prompt for version bump (patch/minor/major)
+10. Update manifest with hashes, version, timestamp
+11. Update top-level README.md catalog table (Skills or Tools table based on category)
+12. Git commit and push in agent-toolkit repo
 
 > With `--dry-run`, the flow stops after step 6. No version bump, no commit, no push. Use this to inspect sanitized output before committing to a release.
 
@@ -101,5 +101,6 @@ publish-skill help                       # Show help
 | Operation | Path | Description |
 |-----------|------|-------------|
 | Config | `.claude/skills/publish-skill/publish-manifest.json` | Publish config, versions, hashes |
-| Target | `target_repo` in manifest | Public repo (push target) |
+| Target | `target_repo` in manifest | Public repo (push target) — `~/your-agent-toolkit-repo` |
 | Source | `.claude/skills/<name>/` | Skill source directory (read-only) |
+| Category | `category` field per skill in manifest | `"skills"` (default) or `"tools"` — determines target subdirectory and whether SKILL.md is stripped |

@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# publish-skill - Sanitize and publish Claude Code skills to a public agent-skills repo
+# publish-skill - Sanitize and publish your skills to public agent-toolkit repo
 #
 
 set -e
@@ -63,7 +63,7 @@ require_manifest() {
 require_target_repo() {
     if [[ ! -d "$TARGET_REPO/.git" ]]; then
         echo "Error: Target repo not found at $TARGET_REPO" >&2
-        echo "Run: cd ~/Projects && git clone <agent-skills-repo>" >&2
+        echo "Run: cd ~/Projects && git clone <agent-toolkit-repo>" >&2
         exit 1
     fi
 }
@@ -206,9 +206,17 @@ security_scan() {
 
 generate_readme() {
     local skill_name="$1"
-    local skill_dir="$TARGET_REPO/skills/$skill_name"
+    local category
+    category=$(jq -r ".skills[\"$skill_name\"].category // \"skills\"" "$MANIFEST")
+    local skill_dir="$TARGET_REPO/$category/$skill_name"
     local skill_md="$skill_dir/SKILL.md"
     local readme="$skill_dir/README.md"
+
+    # Tools without SKILL.md cannot auto-generate a README — caller should set preserve_readme: true
+    if [[ ! -f "$skill_md" ]]; then
+        echo "  Skipping README generation: no SKILL.md (tools category requires preserve_readme: true)"
+        return 0
+    fi
 
     # Read configurable public repo URL (optional — omit footer line if not set)
     local public_repo_url
@@ -251,7 +259,7 @@ generate_readme() {
     # Build optional repo attribution line
     local repo_line=""
     if [[ -n "$public_repo_url" ]]; then
-        repo_line="> Part of [agent-skills](${public_repo_url})"
+        repo_line="> Part of [agent-toolkit](${public_repo_url})"
     fi
 
     cat > "$readme" << READMEEOF
@@ -266,7 +274,7 @@ $repo_line}
 Copy the skill directory into your Claude Code project:
 
 \`\`\`bash
-# From the agent-skills repo
+# From the agent-toolkit repo
 cp -r skills/$skill_name .claude/skills/$skill_name
 
 # Or user-level (available across all projects)
@@ -315,41 +323,51 @@ READMEEOF
 update_catalog() {
     local readme="$TARGET_REPO/README.md"
 
-    # Build new table from manifest
-    local table_lines=""
-    for skill_name in $(jq -r '.skills | keys[]' "$MANIFEST"); do
-        local published version
-        published=$(jq -r ".skills[\"$skill_name\"].published" "$MANIFEST")
+    # Build two tables: skills and tools
+    local skill_table_lines=""
+    local tool_table_lines=""
+    for entry_name in $(jq -r '.skills | keys[]' "$MANIFEST"); do
+        local published version category
+        published=$(jq -r ".skills[\"$entry_name\"].published" "$MANIFEST")
         [[ "$published" != "true" ]] && continue
 
-        version=$(jq -r ".skills[\"$skill_name\"].version" "$MANIFEST")
-
-        # Get description from the published SKILL.md
-        local skill_md="$TARGET_REPO/skills/$skill_name/SKILL.md"
-        local desc=""
-        if [[ -f "$skill_md" ]]; then
-            desc=$(awk '
-                /^---$/ { fm++; next }
-                fm < 2 { next }
-                /^# / { next }
-                /^$/ { next }
-                { print; exit }
-            ' "$skill_md")
-        fi
+        version=$(jq -r ".skills[\"$entry_name\"].version" "$MANIFEST")
+        category=$(jq -r ".skills[\"$entry_name\"].category // \"skills\"" "$MANIFEST")
 
         # Get platform from requirements
         local platform="any"
-        if jq -e ".skills[\"$skill_name\"].requirements[]? | select(. == \"macOS\")" "$MANIFEST" &>/dev/null; then
+        if jq -e ".skills[\"$entry_name\"].requirements[]? | select(. == \"macOS\")" "$MANIFEST" &>/dev/null; then
             platform="macOS"
         fi
 
-        table_lines="${table_lines}| [${skill_name}](skills/${skill_name}/) | ${desc} | ${platform} | ${version} |\n"
+        local desc=""
+        if [[ "$category" == "tools" ]]; then
+            # Tools: get description from README.md (first non-heading, non-empty line)
+            local tool_readme="$TARGET_REPO/tools/$entry_name/README.md"
+            if [[ -f "$tool_readme" ]]; then
+                desc=$(awk '/^# / { next } /^$/ { next } { print; exit }' "$tool_readme")
+            fi
+            tool_table_lines="${tool_table_lines}| [${entry_name}](tools/${entry_name}/) | ${desc} | ${platform} | ${version} |\n"
+        else
+            # Skills: get description from published SKILL.md
+            local skill_md="$TARGET_REPO/skills/$entry_name/SKILL.md"
+            if [[ -f "$skill_md" ]]; then
+                desc=$(awk '
+                    /^---$/ { fm++; next }
+                    fm < 2 { next }
+                    /^# / { next }
+                    /^$/ { next }
+                    { print; exit }
+                ' "$skill_md")
+            fi
+            skill_table_lines="${skill_table_lines}| [${entry_name}](skills/${entry_name}/) | ${desc} | ${platform} | ${version} |\n"
+        fi
     done
 
-    # Replace the table in README.md (between the header row and the next blank line after table)
+    # Replace the Skills table in README.md
     local tmp
     tmp=$(mktemp)
-    awk -v new_rows="$table_lines" '
+    awk -v new_rows="$skill_table_lines" '
     /^\| Skill \| Description/ {
         print
         getline  # print separator line
@@ -363,6 +381,25 @@ update_catalog() {
     { print }
     ' "$readme" > "$tmp"
     mv "$tmp" "$readme"
+
+    # Replace the Tools table in README.md (if it exists)
+    if grep -q "^| Tool | Description" "$readme"; then
+        tmp=$(mktemp)
+        awk -v new_rows="$tool_table_lines" '
+        /^\| Tool \| Description/ {
+            print
+            getline  # print separator line
+            print
+            printf "%s", new_rows
+            # Skip old table rows
+            while (getline > 0 && /^\|/) {}
+            print  # print the line after the table
+            next
+        }
+        { print }
+        ' "$readme" > "$tmp"
+        mv "$tmp" "$readme"
+    fi
 }
 
 # --- Version Bump ---
@@ -460,7 +497,11 @@ cmd_publish() {
     fi
 
     local source_dir="$SKILLS_SOURCE/$name"
-    local target_dir="$TARGET_REPO/skills/$name"
+
+    # Read category from manifest (default: "skills")
+    local category
+    category=$(jq -r ".skills[\"$name\"].category // \"skills\"" "$MANIFEST")
+    local target_dir="$TARGET_REPO/$category/$name"
 
     # Get exclude_files list for this skill (used in hash computation and copy)
     mapfile -t excludes < <(jq -r --arg s "$name" '.skills[$s].exclude_files // [] | .[]' "$MANIFEST")
@@ -490,7 +531,7 @@ cmd_publish() {
     fi
 
     # Copy skill to target
-    echo "Copying $name to agent-skills..."
+    echo "Copying $name to agent-toolkit ($category/$name)..."
     # Guard: ensure target_dir is inside TARGET_REPO before destructive rm
     if [[ "$target_dir" != "$TARGET_REPO"* ]]; then
         echo "Error: Resolved target directory '$target_dir' is outside TARGET_REPO '$TARGET_REPO'. Aborting." >&2
@@ -508,6 +549,12 @@ cmd_publish() {
             echo "  Excluded: $excl"
         fi
     done
+
+    # Tools category: remove SKILL.md from published artifact (pure CLI — no Claude invocation)
+    if [[ "$category" == "tools" ]]; then
+        rm -f "$target_dir/SKILL.md"
+        echo "  Removed SKILL.md (tools category — pure CLI artifact)"
+    fi
 
     # Apply sanitization to all text files
     echo "Sanitizing..."
@@ -552,11 +599,13 @@ cmd_publish() {
         .skills[\"$name\"].published = true" "$MANIFEST" > "$tmp"
     mv "$tmp" "$MANIFEST"
 
-    # Also update version in the published SKILL.md frontmatter
-    SED_INPLACE "s/^version: .*/version: $new_version/" "$target_dir/SKILL.md"
+    # Also update version in the published SKILL.md frontmatter (skills only — tools have no SKILL.md)
+    if [[ -f "$target_dir/SKILL.md" ]]; then
+        SED_INPLACE "s/^version: .*/version: $new_version/" "$target_dir/SKILL.md"
+    fi
 
     # Update catalog in top-level README
-    echo "Updating skill catalog..."
+    echo "Updating catalog..."
     update_catalog
 
     # Dry-run exits here — nothing committed
@@ -568,9 +617,9 @@ cmd_publish() {
     fi
 
     # Git commit and push (targeted add — never git add -A)
-    echo "Committing to agent-skills..."
+    echo "Committing to agent-toolkit..."
     cd "$TARGET_REPO"
-    git add "skills/$name/" README.md
+    git add "$category/$name/" README.md
     if git diff --cached --quiet; then
         echo "No changes to commit."
     else
@@ -591,9 +640,9 @@ EOF
 
     echo ""
     echo "Published $name v$new_version"
-    echo "  Target: $TARGET_REPO/skills/$name/"
+    echo "  Target: $TARGET_REPO/$category/$name/"
     if [[ -n "$public_repo_url" ]]; then
-        echo "  URL: ${public_repo_url}/tree/main/skills/$name"
+        echo "  URL: ${public_repo_url}/tree/main/$category/$name"
     fi
 }
 
@@ -635,21 +684,23 @@ cmd_diff() {
     require_target_repo
 
     local source_dir="$SKILLS_SOURCE/$name"
-    local target_dir="$TARGET_REPO/skills/$name"
+    local category
+    category=$(jq -r ".skills[\"$name\"].category // \"skills\"" "$MANIFEST")
+    local target_dir="$TARGET_REPO/$category/$name"
 
     if [[ ! -d "$target_dir" ]]; then
         echo "Skill '$name' has not been published yet."
         return 1
     fi
 
-    echo "Diff: source (local) vs published (agent-skills)"
+    echo "Diff: source (local) vs published (agent-toolkit)"
     echo "================================================="
     diff -ru "$source_dir" "$target_dir" || true
 }
 
 cmd_help() {
     cat << 'EOF'
-publish-skill - Sanitize and publish skills to public agent-skills repo
+publish-skill - Sanitize and publish skills and tools to public agent-toolkit repo
 
 Usage:
   publish-skill publish <name> [--force] [--bump major|minor|patch|none]
@@ -659,7 +710,7 @@ Usage:
   publish-skill help
 
 Commands:
-  publish   Sanitize, copy, commit, and push a skill to agent-skills
+  publish   Sanitize, copy, commit, and push a skill/tool to agent-toolkit
   list      Show all skills with version and publish status
   diff      Show diff between local source and published version
   init      Mark a skill as publishable in the manifest

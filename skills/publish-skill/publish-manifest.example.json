@@ -1,7 +1,7 @@
 {
-    "target_repo": "~/your-agent-skills-repo",
+    "target_repo": "~/your-agent-toolkit-repo",
     "project_name": "YourProject",
-    "public_repo_url": "https://github.com/your-username/agent-skills",
+    "public_repo_url": "https://github.com/your-username/agent-toolkit",
     "skills_source": ".claude/skills",
     "default_replacements": [
         {
@@ -49,7 +49,6 @@
             "preserve_readme": false,
             "exclude_files": [],
             "strip_lines": [
-                "**Location:** `.claude/skills/my-skill/tools/my-skill`"
             ],
             "extra_replacements": [
                 { "old": "my-internal-name", "new": "my-public-name" }

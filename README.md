@@ -15,7 +15,7 @@ Curated Claude Code skills and CLI tools — ready to drop into any project.
 |-------|-------------|----------|---------|
 | [bear](skills/bear/) | Bear.app CLI bridge — two-way sync between filesystem markdown and Bear notes. | macOS | 1.0.0 |
 | [mde](skills/mde/) | MacDown 3000 CLI with smart recent-file discovery. | macOS | 1.0.1 |
-| [publish-skill](skills/publish-skill/) | Sanitize and publish your skills and tools to the public agent-toolkit GitHub repo. | any | 1.0.0 |
+| [publish-skill](skills/publish-skill/) | Sanitize and publish your skills and tools to the public agent-toolkit GitHub repo. | any | 1.0.1 |
 
 ## Tools
 

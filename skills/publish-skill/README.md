@@ -1,14 +1,14 @@
 # publish-skill
 
-> Sanitize and publish your private Claude Code skills to a public `agent-skills` repo.
+> Sanitize and publish your private Claude Code skills to a public `agent-toolkit` repo.
 >
-> Part of [agent-skills](https://github.com/your-username/agent-skills)
+> Part of [agent-toolkit](https://github.com/your-username/agent-toolkit)
 
 ## What it does
 
 `publish-skill` automates the full contribution pipeline from private project to public repo:
 
-1. **Copy** the skill directory to your public `agent-skills` repo
+1. **Copy** the skill directory to your public `agent-toolkit` repo
 2. **Sanitize** — strip internal paths, project names, and private references via configurable replacement rules
 3. **Exclude** — omit private config files entirely (e.g. your own `publish-manifest.json`)
 4. **Security scan** — hard stop on any PII, API keys, hardcoded paths, or runtime files that slipped through
@@ -24,7 +24,7 @@ The `--dry-run` flag stops after the security scan so you can inspect sanitized 
 - jq (`brew install jq` on macOS, `apt-get install jq` on Ubuntu)
 - rsync (pre-installed on macOS; `apt-get install rsync` on Ubuntu)
 - git
-- A public GitHub repo cloned locally (your `agent-skills` fork or equivalent)
+- A public GitHub repo cloned locally (your `agent-toolkit` fork or equivalent)
 
 ## Installation
 
@@ -58,10 +58,10 @@ source ~/.zshrc
 
 ### 1. Create your public repo
 
-Create a GitHub repo (e.g. `your-username/agent-skills`) and clone it locally:
+Create a GitHub repo (e.g. `your-username/agent-toolkit`) and clone it locally:
 
 ```bash
-git clone https://github.com/your-username/agent-skills ~/your-agent-skills-repo
+git clone https://github.com/your-username/agent-toolkit ~/your-agent-toolkit-repo
 ```
 
 ### 2. Configure the manifest
@@ -92,7 +92,7 @@ This adds `my-skill` to the manifest with default config. Open `publish-manifest
 publish-skill publish my-skill --dry-run
 ```
 
-Inspect the sanitized output at `~/your-agent-skills-repo/skills/my-skill/`. Confirm no private references remain.
+Inspect the sanitized output at `~/your-agent-toolkit-repo/skills/my-skill/`. Confirm no private references remain.
 
 ### 5. Publish
 
@@ -121,7 +121,7 @@ Bumps the patch version, commits, and pushes to your public repo.
 
 | Field | Description |
 |-------|-------------|
-| `target_repo` | Local path to your public agent-skills repo |
+| `target_repo` | Local path to your public agent-toolkit repo |
 | `project_name` | Your private project's internal name; the scan blocks publish if any file still contains it |
 | `public_repo_url` | *(optional)* Your public GitHub repo URL — shown in auto-generated README footers and success output |
 | `skills_source` | Relative path to skills directory (default: `.claude/skills`) |
@@ -175,6 +175,32 @@ These files serve different readers:
 **README.md must work before the AI is involved.** A human follows it to install the skill — they can't ask Claude for help yet.
 
 For skills with CLI tools, set `preserve_readme: true` in the manifest. The auto-generated README from `SKILL.md` is always too sparse for tools that need shell aliases and first-time config steps.
+
+## Publishing Tools (vs Skills)
+
+The `agent-toolkit` repo supports two categories:
+
+| Category | Directory | Has SKILL.md | Claude-aware |
+|----------|-----------|-------------|--------------|
+| `skills` | `skills/<name>/` | Yes | Yes — Claude invokes it |
+| `tools`  | `tools/<name>/`  | No  | No — pure CLI, run directly |
+
+To publish an entry as a tool, add `"category": "tools"` to its entry in `publish-manifest.json`:
+
+```json
+"my-tool": {
+  "category": "tools",
+  "preserve_readme": true,
+  ...
+}
+```
+
+The publish flow will automatically:
+- Place the output in `tools/<name>/` instead of `skills/<name>/`
+- Remove `SKILL.md` from the published artifact
+- Update the Tools table in the public README instead of the Skills table
+
+Tools require `preserve_readme: true` — auto-generated READMEs are built from SKILL.md, which tools don't have. Write the README manually and set the flag.
 
 ## Contributing
 
