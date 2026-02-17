@@ -11,6 +11,7 @@ Each skill is a self-contained directory with a `SKILL.md` definition and option
 | [bear](skills/bear/) | Bear.app CLI bridge — two-way sync between filesystem markdown and Bear notes. | macOS | 1.0.0 |
 | [claude-usage](skills/claude-usage/) | Fetches real-time claude.ai session and weekly usage limits using headless Playwright to bypass Cloudflare TLS fingerprinting, then displays progress bars per model tier. Includes a background poller that keeps a cache file fresh for the statusline. | macOS | 1.0.2 |
 | [mde](skills/mde/) | MacDown 3000 CLI with smart recent-file discovery. | macOS | 1.0.1 |
+| [publish-skill](skills/publish-skill/) | Sanitize and publish your skills to the public agent-skills GitHub repo. | any | 1.0.0 |
 
 ## Installation
 
@@ -50,7 +51,9 @@ This runs automatic checks for secrets, hardcoded paths, and internal references
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the skill format spec and PR checklist.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the skill format and PR checklist.
+
+Maintaining a private project with skills to share? [publish-skill](skills/publish-skill/) automates stripping internal references, security scanning, and publishing — the same tool used to maintain this repo.
 
 ## License
 

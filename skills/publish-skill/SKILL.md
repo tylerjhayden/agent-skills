@@ -1,0 +1,103 @@
+---
+name: publish-skill
+description: Publish skills to public agent-skills repo. Use when user says "publish skill", "push to marketplace", or wants to share skills publicly.
+version: 1.0.0
+---
+
+# publish-skill
+
+Sanitize and publish your skills to the public agent-skills GitHub repo.
+
+## Overview
+
+Automates the process of taking a private skill, stripping internal references (paths, names, cross-references), generating user-facing docs, and pushing to the `your-username/agent-skills` public repo. Tracks versions and file hashes to detect changes.
+
+## When to Use
+
+- "Publish bear to the marketplace"
+- "Push this skill public"
+- "What skills are published?"
+- "Diff bear against the published version"
+
+## README vs SKILL.md — Two-Audience Doctrine
+
+These files serve different readers and should be authored differently:
+
+| | SKILL.md | README.md |
+|---|---|---|
+| **Audience** | The AI agent | Humans installing the skill |
+| **Tone** | Dense, operational | Explanatory, setup-focused |
+| **Must include** | When to invoke, commands, data locations | Installation, shell alias setup, why it works the way it does |
+| **Should include** | Common mistakes (for the agent) | First-time config steps, common mistakes, full command ref |
+| **Should NOT include** | Verbose rationale, setup prose | Internal implementation details |
+
+**SKILL.md is optimized for context.** Every line burns tokens. Keep it tight: trigger phrases, command reference, data locations.
+
+**README.md must be useful before the AI is involved.** A human follows it to install the skill — they can't ask the AI for help yet. It must answer: *What is this? Why does it work this way? How do I get it running?*
+
+Skills with CLI tools nearly always need three things in the README that `generate_readme` cannot produce:
+1. **Shell alias setup** — how the tool gets on PATH for terminal use
+2. **"Why" explanations** — rationale for non-obvious design choices (e.g., "Why Playwright?", "Why URL scheme?")
+3. **First-time credential/config steps** — concrete instructions for acquiring API keys, session cookies, etc.
+
+When a README needs this level of detail, set `preserve_readme: true` in the manifest. The publish flow will preserve the handcrafted README instead of regenerating it from SKILL.md.
+
+## Common Mistakes
+
+**Publishing without `init` first.** Skills must be initialized in the manifest before publishing. Run `publish-skill init <name>` to add a skill to the manifest with default config.
+
+**Forgetting per-skill strip rules.** Default sanitization handles common patterns, but each skill may have unique internal references. Use `--dry-run` to inspect sanitized output before committing.
+
+**Handcrafted README getting overwritten.** If a skill has a detailed, human-authored README, set `preserve_readme: true` in the manifest before publishing. Without it, `generate_readme` overwrites the README with a sparse auto-generated version from SKILL.md.
+
+## CLI Tool
+
+**Alias:** `publish-skill`
+
+### Quick Reference
+
+```bash
+publish-skill publish <name>             # Sanitize + scan + copy + commit + push
+publish-skill publish <name> --dry-run   # Sanitize + scan only — no commit or push
+publish-skill publish <name> --force     # Publish even if source is unchanged
+publish-skill list                       # Show all skills and publish status
+publish-skill diff <name>                # Diff local vs published version
+publish-skill init <name>                # Mark a skill as publishable
+publish-skill help                       # Show help
+```
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `publish <name>` | Sanitize skill, security scan, copy to agent-skills, bump version, commit and push |
+| `publish <name> --dry-run` | Sanitize and scan only — inspect output without committing |
+| `publish <name> --force` | Publish even if source hashes are unchanged |
+| `list` | Show all skills in manifest with version and publish status |
+| `diff <name>` | Show diff between local source and published version |
+| `init <name>` | Add a skill to the manifest as publishable |
+| `help` | Show usage |
+
+### Publish Flow
+
+1. Verify skill exists in manifest
+2. Compute SHA256 hashes of all source files
+3. Skip if unchanged (use `--force` to override)
+4. Copy skill to `~/your-agent-skills-repo/skills/<name>/`
+5. Apply sanitization (default rules + per-skill overrides)
+6. Run security scan — **hard stop** on any finding (all failures collected before aborting)
+7. Generate README.md from sanitized SKILL.md
+8. Prompt for version bump (patch/minor/major)
+9. Update manifest with hashes, version, timestamp
+10. Update top-level README.md catalog table
+11. Git commit and push in agent-skills repo
+
+> With `--dry-run`, the flow stops after step 6. No version bump, no commit, no push. Use this to inspect sanitized output before committing to a release.
+
+## Data Locations
+
+| Operation | Path | Description |
+|-----------|------|-------------|
+| Config | `.claude/skills/publish-skill/publish-manifest.json` | Publish config, versions, hashes |
+| Target | `~/your-agent-skills-repo/` | Public repo (push target) |
+| Source | `.claude/skills/<name>/` | your skill source (read-only) |

@@ -1,0 +1,621 @@
+#!/bin/bash
+#
+# publish-skill - Sanitize and publish your skills to public agent-skills repo
+#
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+MANIFEST="$SCRIPT_DIR/publish-manifest.json"
+PROJECT_HOME="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+SKILLS_SOURCE="$PROJECT_HOME/.claude/skills"
+
+# Resolve target repo from manifest
+TARGET_REPO="$(jq -r '.target_repo' "$MANIFEST")"
+TARGET_REPO="${TARGET_REPO/#\~/$HOME}"
+
+# --- Helpers ---
+
+require_jq() {
+    if ! command -v jq &>/dev/null; then
+        echo "Error: jq is required but not found. Install with: brew install jq" >&2
+        exit 1
+    fi
+}
+
+require_manifest() {
+    if [[ ! -f "$MANIFEST" ]]; then
+        echo "Error: Manifest not found at $MANIFEST" >&2
+        exit 1
+    fi
+}
+
+require_target_repo() {
+    if [[ ! -d "$TARGET_REPO/.git" ]]; then
+        echo "Error: Target repo not found at $TARGET_REPO" >&2
+        echo "Run: cd ~/Projects && git clone <agent-skills-repo>" >&2
+        exit 1
+    fi
+}
+
+skill_exists_in_manifest() {
+    local name="$1"
+    jq -e ".skills[\"$name\"]" "$MANIFEST" &>/dev/null
+}
+
+skill_source_exists() {
+    local name="$1"
+    [[ -d "$SKILLS_SOURCE/$name" ]]
+}
+
+compute_file_hash() {
+    shasum -a 256 "$1" | awk '{print $1}'
+}
+
+# --- Sanitization ---
+
+apply_sanitization() {
+    local file="$1"
+    local skill_name="$2"
+
+    # Apply default replacements
+    local count
+    count=$(jq '.default_replacements | length' "$MANIFEST")
+    for ((i = 0; i < count; i++)); do
+        local old new
+        old=$(jq -r ".default_replacements[$i].old" "$MANIFEST")
+        new=$(jq -r ".default_replacements[$i].new" "$MANIFEST")
+        # Use | as sed delimiter to avoid conflicts with /
+        sed -i '' "s|$(printf '%s' "$old" | sed 's/[&/\]/\\&/g')|$(printf '%s' "$new" | sed 's/[&/\]/\\&/g')|g" "$file"
+    done
+
+    # Apply per-skill extra replacements
+    local extra_count
+    extra_count=$(jq ".skills[\"$skill_name\"].extra_replacements | length" "$MANIFEST")
+    for ((i = 0; i < extra_count; i++)); do
+        local old new
+        old=$(jq -r ".skills[\"$skill_name\"].extra_replacements[$i].old" "$MANIFEST")
+        new=$(jq -r ".skills[\"$skill_name\"].extra_replacements[$i].new" "$MANIFEST")
+        sed -i '' "s|$(printf '%s' "$old" | sed 's/[&/\]/\\&/g')|$(printf '%s' "$new" | sed 's/[&/\]/\\&/g')|g" "$file"
+    done
+
+    # Strip lines matching strip_lines patterns
+    local strip_count
+    strip_count=$(jq ".skills[\"$skill_name\"].strip_lines | length" "$MANIFEST")
+    for ((i = 0; i < strip_count; i++)); do
+        local pattern
+        pattern=$(jq -r ".skills[\"$skill_name\"].strip_lines[$i]" "$MANIFEST")
+        # Escape special characters for grep/sed
+        local escaped
+        escaped=$(printf '%s' "$pattern" | sed 's/[[\.*^$()+?{|]/\\&/g')
+        # Remove lines containing the pattern
+        sed -i '' "/${escaped}/d" "$file"
+    done
+}
+
+# --- Security Scan ---
+
+security_scan() {
+    local dir="$1"
+    local skill_name="$2"
+    local failed=false
+
+    echo "🔒 Running security checks..."
+
+    # 1. Internal project name leak (configurable via 'project_name' in manifest)
+    local project_name
+    project_name=$(jq -r '.project_name // ""' "$MANIFEST" 2>/dev/null)
+    if [[ -n "$project_name" ]]; then
+        local project_hits
+        project_hits=$(grep -ri "$project_name" "$dir" 2>/dev/null || true)
+        if [[ -n "$project_hits" ]]; then
+            echo ""
+            echo "❌ BLOCKED: Internal project name found after sanitization:"
+            echo "$project_hits" | sed 's/^/   /'
+            echo "   Add missing rules to publish-manifest.json extra_replacements."
+            failed=true
+        fi
+    fi
+
+    # 2. Personal filesystem paths
+    local path_hits
+    path_hits=$(grep -rEi "/Users/[a-zA-Z]" "$dir" 2>/dev/null || true)
+    if [[ -n "$path_hits" ]]; then
+        echo ""
+        echo "❌ BLOCKED: Personal filesystem path found:"
+        echo "$path_hits" | sed 's/^/   /'
+        failed=true
+    fi
+
+    # 3. Email addresses
+    local email_hits
+    email_hits=$(grep -rEi "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}" "$dir" 2>/dev/null \
+        | grep -v "noreply@anthropic.com" || true)
+    if [[ -n "$email_hits" ]]; then
+        echo ""
+        echo "❌ BLOCKED: Email address found:"
+        echo "$email_hits" | sed 's/^/   /'
+        failed=true
+    fi
+
+    # 4. Common API key / token patterns
+    local token_hits
+    token_hits=$(grep -rEi "ghp_[a-zA-Z0-9]{36}|ghs_[a-zA-Z0-9]+|AKIA[0-9A-Z]{16}|sk-[a-zA-Z0-9]{32,}|Bearer [a-zA-Z0-9._-]{20,}" "$dir" 2>/dev/null || true)
+    if [[ -n "$token_hits" ]]; then
+        echo ""
+        echo "❌ BLOCKED: Possible API key or token found:"
+        echo "$token_hits" | sed 's/^/   /'
+        failed=true
+    fi
+
+    # 5. Runtime files that should never be published
+    local runtime_files
+    runtime_files=$(find "$dir" -name "browser-state.json" -o -name "cache.json" -o -name "*.tmp" 2>/dev/null || true)
+    if [[ -n "$runtime_files" ]]; then
+        echo ""
+        echo "❌ BLOCKED: Runtime files found in publish target:"
+        echo "$runtime_files" | sed 's/^/   /'
+        failed=true
+    fi
+
+    if [[ "$failed" == "true" ]]; then
+        echo ""
+        echo "Publish aborted. Fix the issues above before publishing."
+        return 1
+    fi
+
+    echo ""
+    printf "\033[0;32m✅ All security checks passed\033[0m\n"
+}
+
+# --- README Generation ---
+
+generate_readme() {
+    local skill_name="$1"
+    local skill_dir="$TARGET_REPO/skills/$skill_name"
+    local skill_md="$skill_dir/SKILL.md"
+    local readme="$skill_dir/README.md"
+
+    # Extract description from SKILL.md (first non-heading, non-frontmatter line)
+    local description
+    description=$(awk '
+        /^---$/ { fm++; next }
+        fm < 2 { next }
+        /^# / { next }
+        /^$/ { next }
+        { print; exit }
+    ' "$skill_md")
+
+    # Extract version from manifest
+    local version
+    version=$(jq -r ".skills[\"$skill_name\"].version" "$MANIFEST")
+
+    # Extract requirements
+    local requirements
+    requirements=$(jq -r ".skills[\"$skill_name\"].requirements[]?" "$MANIFEST" | sed 's/^/- /')
+
+    # Extract sections from SKILL.md using awk (macOS-compatible)
+    extract_section() {
+        local file="$1" start="$2" stop_pattern="$3"
+        awk -v start="$start" -v stop="$stop_pattern" '
+            $0 == start { found=1; next }
+            found && $0 ~ stop { exit }
+            found { print }
+        ' "$file"
+    }
+
+    local overview when_to_use commands examples
+    overview=$(extract_section "$skill_md" "## Overview" "^## ")
+    when_to_use=$(extract_section "$skill_md" "## When to Use" "^## ")
+    commands=$(extract_section "$skill_md" "### Quick Reference" "^### [^C]")
+    examples=$(extract_section "$skill_md" "### Examples" "^## ")
+
+    cat > "$readme" << READMEEOF
+# $skill_name
+
+> $description
+>
+> Part of [agent-skills](https://github.com/your-username/agent-skills)
+
+## Installation
+
+Copy the skill directory into your Claude Code project:
+
+\`\`\`bash
+# From the agent-skills repo
+cp -r skills/$skill_name .claude/skills/$skill_name
+
+# Or user-level (available across all projects)
+cp -r skills/$skill_name ~/.claude/skills/$skill_name
+\`\`\`
+
+## Requirements
+
+$requirements
+
+## Overview
+
+$overview
+## When to Use
+
+$when_to_use
+READMEEOF
+
+    # Add commands section if it exists
+    if [[ -n "$commands" ]]; then
+        cat >> "$readme" << READMEEOF
+## Quick Reference
+
+$commands
+READMEEOF
+    fi
+
+    # Add examples section if it exists
+    if [[ -n "$examples" ]]; then
+        cat >> "$readme" << READMEEOF
+## Examples
+
+$examples
+READMEEOF
+    fi
+
+    cat >> "$readme" << READMEEOF
+## License
+
+MIT — see [LICENSE](../../LICENSE).
+READMEEOF
+}
+
+# --- Catalog Update ---
+
+update_catalog() {
+    local readme="$TARGET_REPO/README.md"
+
+    # Build new table from manifest
+    local table_lines=""
+    for skill_name in $(jq -r '.skills | keys[]' "$MANIFEST"); do
+        local published version
+        published=$(jq -r ".skills[\"$skill_name\"].published" "$MANIFEST")
+        [[ "$published" != "true" ]] && continue
+
+        version=$(jq -r ".skills[\"$skill_name\"].version" "$MANIFEST")
+
+        # Get description from the published SKILL.md
+        local skill_md="$TARGET_REPO/skills/$skill_name/SKILL.md"
+        local desc=""
+        if [[ -f "$skill_md" ]]; then
+            desc=$(awk '
+                /^---$/ { fm++; next }
+                fm < 2 { next }
+                /^# / { next }
+                /^$/ { next }
+                { print; exit }
+            ' "$skill_md")
+        fi
+
+        # Get platform from requirements
+        local platform="any"
+        if jq -e ".skills[\"$skill_name\"].requirements[]? | select(. == \"macOS\")" "$MANIFEST" &>/dev/null; then
+            platform="macOS"
+        fi
+
+        table_lines="${table_lines}| [${skill_name}](skills/${skill_name}/) | ${desc} | ${platform} | ${version} |\n"
+    done
+
+    # Replace the table in README.md (between the header row and the next blank line after table)
+    local tmp
+    tmp=$(mktemp)
+    awk -v new_rows="$table_lines" '
+    /^\| Skill \| Description/ {
+        print
+        getline  # print separator line
+        print
+        printf "%s", new_rows
+        # Skip old table rows
+        while (getline > 0 && /^\|/) {}
+        print  # print the line after the table
+        next
+    }
+    { print }
+    ' "$readme" > "$tmp"
+    mv "$tmp" "$readme"
+}
+
+# --- Version Bump ---
+
+bump_version() {
+    local current="$1"
+    local bump_type="${2:-patch}"
+
+    local major minor patch
+    IFS='.' read -r major minor patch <<< "$current"
+
+    case "$bump_type" in
+        major) echo "$((major + 1)).0.0" ;;
+        minor) echo "${major}.$((minor + 1)).0" ;;
+        patch) echo "${major}.${minor}.$((patch + 1))" ;;
+        none)  echo "$current" ;;
+        *)     echo "Error: Invalid bump type: $bump_type (use major/minor/patch/none)" >&2; return 1 ;;
+    esac
+}
+
+# --- Commands ---
+
+cmd_init() {
+    local name="$1"
+    if [[ -z "$name" ]]; then
+        echo "Usage: publish-skill init <skill-name>"
+        return 1
+    fi
+
+    require_jq
+    require_manifest
+
+    if ! skill_source_exists "$name"; then
+        echo "Error: Skill source not found at $SKILLS_SOURCE/$name" >&2
+        return 1
+    fi
+
+    if skill_exists_in_manifest "$name"; then
+        echo "Skill '$name' already exists in manifest."
+        return 0
+    fi
+
+    # Add skill to manifest with default config
+    local tmp
+    tmp=$(mktemp)
+    jq ".skills[\"$name\"] = {
+        \"published\": false,
+        \"version\": \"1.0.0\",
+        \"last_published\": null,
+        \"files_hash\": {},
+        \"requirements\": [],
+        \"strip_lines\": [],
+        \"extra_replacements\": []
+    }" "$MANIFEST" > "$tmp"
+    mv "$tmp" "$MANIFEST"
+
+    echo "Initialized '$name' in publish manifest."
+    echo "Edit $MANIFEST to configure requirements, strip_lines, and extra_replacements."
+}
+
+cmd_publish() {
+    local name="$1"
+    shift || true
+    local force=false
+    local bump_type="patch"
+    local dry_run=false
+
+    # Parse flags
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --force)     force=true; shift ;;
+            --bump)      bump_type="$2"; shift 2 ;;
+            --dry-run)   dry_run=true; shift ;;
+            *)           shift ;;
+        esac
+    done
+
+    if [[ -z "$name" ]]; then
+        echo "Usage: publish-skill publish <skill-name> [--force] [--bump major|minor|patch|none]"
+        return 1
+    fi
+
+    require_jq
+    require_manifest
+    require_target_repo
+
+    if ! skill_exists_in_manifest "$name"; then
+        echo "Error: Skill '$name' not found in manifest. Run: publish-skill init $name" >&2
+        return 1
+    fi
+
+    if ! skill_source_exists "$name"; then
+        echo "Error: Skill source not found at $SKILLS_SOURCE/$name" >&2
+        return 1
+    fi
+
+    local source_dir="$SKILLS_SOURCE/$name"
+    local target_dir="$TARGET_REPO/skills/$name"
+
+    # Compute current file hashes
+    echo "Computing file hashes..."
+    local new_hashes="{}"
+    while IFS= read -r -d '' file; do
+        local rel="${file#$source_dir/}"
+        local hash
+        hash=$(compute_file_hash "$file")
+        new_hashes=$(echo "$new_hashes" | jq --arg k "$rel" --arg v "$hash" '. + {($k): $v}')
+    done < <(find "$source_dir" -type f -not -name '.DS_Store' -print0)
+
+    # Check if anything changed
+    local old_hashes
+    old_hashes=$(jq -c ".skills[\"$name\"].files_hash // {}" "$MANIFEST")
+    if [[ "$new_hashes" == "$old_hashes" ]] && [[ "$force" != "true" ]]; then
+        echo "No changes detected since last publish. Use --force to republish."
+        return 0
+    fi
+
+    # Copy skill to target
+    echo "Copying $name to agent-skills..."
+    rm -rf "$target_dir"
+    mkdir -p "$target_dir"
+    # Copy everything except .DS_Store
+    rsync -a --exclude='.DS_Store' "$source_dir/" "$target_dir/"
+
+    # Remove excluded files (per-skill manifest setting)
+    while IFS= read -r excl; do
+        if [[ -n "$excl" && -f "$target_dir/$excl" ]]; then
+            rm "$target_dir/$excl"
+            echo "  Excluded: $excl"
+        fi
+    done < <(jq -r ".skills[\"$name\"].exclude_files // [] | .[]" "$MANIFEST" 2>/dev/null)
+
+    # Apply sanitization to all text files
+    echo "Sanitizing..."
+    while IFS= read -r -d '' file; do
+        # Only sanitize text files
+        if file "$file" | grep -q "text"; then
+            apply_sanitization "$file" "$name"
+        fi
+    done < <(find "$target_dir" -type f -print0)
+
+    # Security scan — hard stop on any finding
+    security_scan "$target_dir" "$name" || return 1
+
+    # Generate README (skip if skill has a handcrafted README)
+    local preserve_readme
+    preserve_readme=$(jq -r ".skills[\"$name\"].preserve_readme // false" "$MANIFEST")
+    if [[ "$preserve_readme" == "true" ]]; then
+        echo "Preserving handcrafted README (preserve_readme: true in manifest)"
+    else
+        echo "Generating README..."
+        generate_readme "$name"
+    fi
+
+    # Version bump
+    local current_version
+    current_version=$(jq -r ".skills[\"$name\"].version" "$MANIFEST")
+    local new_version
+    new_version=$(bump_version "$current_version" "$bump_type")
+    echo "Version: $current_version -> $new_version"
+
+    # Update manifest
+    local now
+    now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local tmp
+    tmp=$(mktemp)
+    jq --arg v "$new_version" \
+       --arg t "$now" \
+       --argjson h "$new_hashes" \
+       ".skills[\"$name\"].version = \$v |
+        .skills[\"$name\"].last_published = \$t |
+        .skills[\"$name\"].files_hash = \$h |
+        .skills[\"$name\"].published = true" "$MANIFEST" > "$tmp"
+    mv "$tmp" "$MANIFEST"
+
+    # Also update version in the published SKILL.md frontmatter
+    sed -i '' "s/^version: .*/version: $new_version/" "$target_dir/SKILL.md"
+
+    # Update catalog in top-level README
+    echo "Updating skill catalog..."
+    update_catalog
+
+    # Dry-run exits here — nothing committed
+    if [[ "$dry_run" == "true" ]]; then
+        echo ""
+        echo "Dry run complete — sanitized output is at $target_dir"
+        echo "No changes committed. Review the output above, then run without --dry-run."
+        return 0
+    fi
+
+    # Git commit and push (targeted add — never git add -A)
+    echo "Committing to agent-skills..."
+    cd "$TARGET_REPO"
+    git add "skills/$name/" README.md
+    if git diff --cached --quiet; then
+        echo "No changes to commit."
+    else
+        git commit -m "$(cat <<EOF
+publish: $name v$new_version
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+EOF
+)"
+        git push 2>/dev/null || echo "Push skipped (no remote configured yet)"
+    fi
+    cd "$PROJECT_HOME"
+
+    echo ""
+    echo "Published $name v$new_version"
+    echo "  Target: $TARGET_REPO/skills/$name/"
+    echo "  URL: https://github.com/your-username/agent-skills/tree/main/skills/$name"
+}
+
+cmd_list() {
+    require_jq
+    require_manifest
+
+    echo "Published Skills"
+    echo "================"
+    echo ""
+    printf "  %-20s %-10s %-12s %s\n" "SKILL" "VERSION" "STATUS" "LAST PUBLISHED"
+    printf "  %-20s %-10s %-12s %s\n" "-----" "-------" "------" "--------------"
+
+    for skill_name in $(jq -r '.skills | keys[]' "$MANIFEST"); do
+        local version published last
+        version=$(jq -r ".skills[\"$skill_name\"].version" "$MANIFEST")
+        published=$(jq -r ".skills[\"$skill_name\"].published" "$MANIFEST")
+        last=$(jq -r ".skills[\"$skill_name\"].last_published // \"never\"" "$MANIFEST")
+
+        local status="initialized"
+        [[ "$published" == "true" ]] && status="published"
+
+        # Truncate timestamp for display
+        [[ "$last" != "never" && "$last" != "null" ]] && last="${last%%T*}" || last="never"
+
+        printf "  %-20s %-10s %-12s %s\n" "$skill_name" "$version" "$status" "$last"
+    done
+}
+
+cmd_diff() {
+    local name="$1"
+    if [[ -z "$name" ]]; then
+        echo "Usage: publish-skill diff <skill-name>"
+        return 1
+    fi
+
+    require_jq
+    require_manifest
+    require_target_repo
+
+    local source_dir="$SKILLS_SOURCE/$name"
+    local target_dir="$TARGET_REPO/skills/$name"
+
+    if [[ ! -d "$target_dir" ]]; then
+        echo "Skill '$name' has not been published yet."
+        return 1
+    fi
+
+    echo "Diff: source (local) vs published (agent-skills)"
+    echo "================================================="
+    diff -ru "$source_dir" "$target_dir" || true
+}
+
+cmd_help() {
+    cat << 'EOF'
+publish-skill - Sanitize and publish skills to public agent-skills repo
+
+Usage:
+  publish-skill publish <name> [--force] [--bump major|minor|patch|none]
+  publish-skill list
+  publish-skill diff <name>
+  publish-skill init <name>
+  publish-skill help
+
+Commands:
+  publish   Sanitize, copy, commit, and push a skill to agent-skills
+  list      Show all skills with version and publish status
+  diff      Show diff between local source and published version
+  init      Mark a skill as publishable in the manifest
+  help      Show this help
+
+Options:
+  --force     Republish even if no changes detected
+  --bump      Version bump type (default: patch)
+  --dry-run   Sanitize and scan only — do not commit or push
+EOF
+}
+
+# --- Main ---
+
+require_jq
+
+case "${1:-}" in
+    publish)    cmd_publish "$2" "${@:3}" ;;
+    list)       cmd_list ;;
+    diff)       cmd_diff "$2" ;;
+    init)       cmd_init "$2" ;;
+    help|--help|-h) cmd_help ;;
+    *)          cmd_help ;;
+esac
