@@ -1,0 +1,4 @@
+# Runtime files — contain session cookies and cached data
+# These must never be committed to version control
+runtime/
+*.tmp

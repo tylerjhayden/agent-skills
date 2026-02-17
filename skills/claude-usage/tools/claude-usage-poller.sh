@@ -24,6 +24,7 @@ BUN="${HOME}/.bun/bin/bun"
 CACHE="$PROJECT_HOME/runtime/claude-usage/cache.json"
 
 log() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*" >> "$LOG"; }
+# NOTE: Replace 'my-project' and 'com.myproject' with your own project name throughout this file.
 
 # Gate 1: Skip if no active Claude Code session
 if ! pgrep -xq "claude" 2>/dev/null; then

@@ -84,7 +84,7 @@ claude.ai usage — 10:42 AM
 | Writes | macOS Keychain `claude-usage/org-id` | Stored during `claude-usage setup` |
 | Writes | `runtime/claude-usage/browser-state.json` | Playwright storage state (Cloudflare clearance, 90-min TTL) |
 | Writes | `runtime/claude-usage/cache.json` | Latest usage snapshot for statusline |
-| Reads | `runtime/claude-usage/cache.json` | Read by `statusline-command.sh` |
+| Reads | `runtime/claude-usage/cache.json` | Read by your statusline script |
 | Logs | `logs/claude-usage-poller.log` | Poller operational log (started, OK, ERROR) |
 | Logs | `logs/claude-usage-poller-error.log` | stderr from claude-usage in poller mode |
 

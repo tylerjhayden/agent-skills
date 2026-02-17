@@ -114,6 +114,8 @@ Sonnet 4.5 | main | 27% ctx                   # no cache yet (poller hasn't run)
 
 ## Background Poller
 
+> **Customization required:** Replace `my-project` with your own project directory name and `com.myproject` with your own reverse-domain identifier (e.g., `com.yourname`) throughout the poller script and plist before use.
+
 The LaunchAgent fires every 2 minutes but exits in <100ms when Claude Code isn't running. When active, it adapts the fetch interval to utilization:
 
 - **< 80%** → fetch every ~10 min

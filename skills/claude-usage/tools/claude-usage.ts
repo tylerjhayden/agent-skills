@@ -15,7 +15,7 @@
 
 import { chromium } from 'playwright';
 import { execSync, execFileSync } from 'node:child_process';
-import { existsSync, statSync, mkdirSync, writeFileSync, renameSync, rmSync } from 'node:fs';
+import { existsSync, statSync, mkdirSync, writeFileSync, renameSync, rmSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 
 // ─── Runtime paths ────────────────────────────────────────────────────────────
@@ -47,9 +47,10 @@ interface UsageResponse {
 
 function keychainGet(account: string): string | null {
   try {
-    return execSync(
-      `security find-generic-password -a "${account}" -s claude-usage -w 2>/dev/null`,
-      { encoding: 'utf8' },
+    return execFileSync(
+      'security',
+      ['find-generic-password', '-a', account, '-s', 'claude-usage', '-w'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
     ).trim();
   } catch {
     return null;
@@ -58,7 +59,9 @@ function keychainGet(account: string): string | null {
 
 function keychainSet(account: string, value: string): void {
   try {
-    execSync(`security delete-generic-password -a "${account}" -s claude-usage 2>/dev/null`);
+    execFileSync('security', ['delete-generic-password', '-a', account, '-s', 'claude-usage'], {
+      stdio: 'ignore',
+    });
   } catch {}
   execFileSync('security', [
     'add-generic-password',
@@ -182,6 +185,7 @@ async function fetchUsage(orgId: string, sessionKey: string): Promise<UsageRespo
     // Persist storage state for next run (skip warm-up)
     mkdirSync(RUNTIME_DIR, { recursive: true });
     await context.storageState({ path: STORAGE_STATE_PATH });
+    chmodSync(STORAGE_STATE_PATH, 0o600); // contains session cookies — owner-only
 
     return data;
   } finally {
