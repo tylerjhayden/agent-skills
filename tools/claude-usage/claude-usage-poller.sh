@@ -18,7 +18,7 @@
 set -euo pipefail
 
 PROJECT_HOME="${PROJECT_HOME:-$HOME/my-project}"
-SCRIPT="$PROJECT_HOME/.claude/skills/claude-usage/tools/claude-usage.ts"
+SCRIPT="$PROJECT_HOME/.claude/tools/claude-usage/claude-usage.ts"
 LOG="$PROJECT_HOME/logs/claude-usage-poller.log"
 BUN="${HOME}/.bun/bin/bun"
 CACHE="$PROJECT_HOME/runtime/claude-usage/cache.json"

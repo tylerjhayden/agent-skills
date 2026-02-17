@@ -49,7 +49,7 @@ cp -r skills/bear ~/.claude/skills/bear
 cp -r tools/claude-usage .claude/tools/claude-usage
 
 # Add to PATH (e.g. in ~/.zshrc)
-alias claude-usage="/path/to/.claude/tools/claude-usage/tools/claude-usage.ts"
+alias claude-usage="/path/to/.claude/tools/claude-usage/claude-usage.ts"
 ```
 
 3. See the tool's README for full setup instructions
