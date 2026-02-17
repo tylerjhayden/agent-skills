@@ -1,6 +1,13 @@
-# Contributing to Agent Skills
+# Contributing to Agent Toolkit
 
-Thanks for contributing! This guide covers the skill format and PR requirements for this repo, following the [Agent Skills Specification](https://agentskills.io/specification).
+Thanks for contributing! This guide covers the skill and tool formats and PR requirements for this repo.
+
+## What Goes Where
+
+| Directory | What belongs here |
+|-----------|-------------------|
+| `skills/` | Claude Code skills with `SKILL.md`. Claude invokes these by name during sessions. |
+| `tools/`  | Standalone CLI tools. No `SKILL.md`. Users run these directly from the shell. |
 
 ## Skill Format
 
@@ -107,11 +114,42 @@ Before submitting:
 - [ ] `help` command works
 - [ ] Tested on a clean install (copy to fresh `.claude/skills/`)
 
+## Tool Format
+
+Tools live under `tools/` and are pure CLI executables — no `SKILL.md` required:
+
+```
+tools/<name>/
+  README.md         # Required — user-facing docs (install, PATH/alias setup, usage)
+  tools/            # Required — executable(s) (bash, python, TypeScript, etc.)
+    <tool-name>     # Executable with shebang line
+```
+
+### Tool Requirements
+
+- No `SKILL.md` — tools are not Claude-invocable, they run from the shell
+- `README.md` must cover: what it does, installation, PATH/alias setup, usage
+- Executables must have a shebang line and be self-contained
+- Include a `help` subcommand
+- Use `set -e` in bash scripts
+
+### Tool PR Checklist
+
+Before submitting a tool:
+
+- [ ] No `SKILL.md` (tools are pure CLI)
+- [ ] `README.md` with install and alias/PATH setup instructions
+- [ ] No hardcoded user paths (`/Users/...`, `~/specific-project/`)
+- [ ] No API keys, tokens, or credentials in any files
+- [ ] Tools are executable (`chmod +x`)
+- [ ] `help` command works
+- [ ] Tested on a clean install
+
 ## Publishing from a Private Project
 
-If you maintain a private Claude Code project with skills you want to contribute, [publish-skill](../skills/publish-skill/) automates the full workflow: stripping internal references, running security scans, and pushing to this repo.
+If you maintain a private Claude Code project with skills or tools to share, [publish-skill](../skills/publish-skill/) automates the full workflow: stripping internal references, running security scans, and pushing to this repo.
 
-It handles the common footguns automatically — hardcoded paths, project-specific names, runtime files — via a configurable sanitization pipeline with a mandatory security scan gate.
+It handles the common footguns automatically — hardcoded paths, project-specific names, runtime files — via a configurable sanitization pipeline with a mandatory security scan gate. Add `"category": "tools"` to a manifest entry to publish it to `tools/` instead of `skills/`.
 
 ## Template
 
