@@ -107,6 +107,12 @@ Before submitting:
 - [ ] `help` command works
 - [ ] Tested on a clean install (copy to fresh `.claude/skills/`)
 
+## Publishing from a Private Project
+
+If you maintain a private Claude Code project with skills you want to contribute, [publish-skill](../skills/publish-skill/) automates the full workflow: stripping internal references, running security scans, and pushing to this repo.
+
+It handles the common footguns automatically — hardcoded paths, project-specific names, runtime files — via a configurable sanitization pipeline with a mandatory security scan gate.
+
 ## Template
 
 Use this as a starting point:

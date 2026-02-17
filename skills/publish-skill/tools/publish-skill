@@ -1,14 +1,31 @@
 #!/bin/bash
 #
-# publish-skill - Sanitize and publish your skills to public agent-skills repo
+# publish-skill - Sanitize and publish Claude Code skills to a public agent-skills repo
 #
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 MANIFEST="$SCRIPT_DIR/publish-manifest.json"
-PROJECT_HOME="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+
+# Find project root by walking up until we find a .claude/ directory
+find_project_root() {
+    local dir="$SCRIPT_DIR"
+    while [[ "$dir" != "/" ]]; do
+        [[ -d "$dir/.claude" ]] && echo "$dir" && return 0
+        dir="$(dirname "$dir")"
+    done
+    echo ""
+}
+PROJECT_HOME="$(find_project_root)"
 SKILLS_SOURCE="$PROJECT_HOME/.claude/skills"
+
+# Detect sed flavor once at startup (GNU vs BSD)
+if sed --version 2>/dev/null | grep -q GNU; then
+    SED_INPLACE() { sed -i "$@"; }
+else
+    SED_INPLACE() { sed -i '' "$@"; }
+fi
 
 # Resolve target repo from manifest
 TARGET_REPO="$(jq -r '.target_repo' "$MANIFEST")"
@@ -18,7 +35,20 @@ TARGET_REPO="${TARGET_REPO/#\~/$HOME}"
 
 require_jq() {
     if ! command -v jq &>/dev/null; then
-        echo "Error: jq is required but not found. Install with: brew install jq" >&2
+        cat >&2 <<'EOF'
+Error: jq is required but not found.
+  macOS:  brew install jq
+  Ubuntu: apt-get install jq
+  RHEL:   yum install jq
+  Other:  https://jqlang.github.io/jq/download/
+EOF
+        exit 1
+    fi
+}
+
+require_rsync() {
+    if ! command -v rsync &>/dev/null; then
+        echo "Error: rsync is required but not found. Install via your package manager." >&2
         exit 1
     fi
 }
@@ -62,21 +92,25 @@ apply_sanitization() {
     local count
     count=$(jq '.default_replacements | length' "$MANIFEST")
     for ((i = 0; i < count; i++)); do
-        local old new
+        local old new escaped_old escaped_new
         old=$(jq -r ".default_replacements[$i].old" "$MANIFEST")
         new=$(jq -r ".default_replacements[$i].new" "$MANIFEST")
-        # Use | as sed delimiter to avoid conflicts with /
-        sed -i '' "s|$(printf '%s' "$old" | sed 's/[&/\]/\\&/g')|$(printf '%s' "$new" | sed 's/[&/\]/\\&/g')|g" "$file"
+        # Escape regex metacharacters in old (pattern) and delimiter chars in new (replacement)
+        escaped_old=$(printf '%s' "$old" | sed 's/[]\/$*.^[]/\\&/g')
+        escaped_new=$(printf '%s' "$new" | sed 's/[&/\]/\\&/g')
+        SED_INPLACE "s|${escaped_old}|${escaped_new}|g" "$file"
     done
 
     # Apply per-skill extra replacements
     local extra_count
     extra_count=$(jq ".skills[\"$skill_name\"].extra_replacements | length" "$MANIFEST")
     for ((i = 0; i < extra_count; i++)); do
-        local old new
+        local old new escaped_old escaped_new
         old=$(jq -r ".skills[\"$skill_name\"].extra_replacements[$i].old" "$MANIFEST")
         new=$(jq -r ".skills[\"$skill_name\"].extra_replacements[$i].new" "$MANIFEST")
-        sed -i '' "s|$(printf '%s' "$old" | sed 's/[&/\]/\\&/g')|$(printf '%s' "$new" | sed 's/[&/\]/\\&/g')|g" "$file"
+        escaped_old=$(printf '%s' "$old" | sed 's/[]\/$*.^[]/\\&/g')
+        escaped_new=$(printf '%s' "$new" | sed 's/[&/\]/\\&/g')
+        SED_INPLACE "s|${escaped_old}|${escaped_new}|g" "$file"
     done
 
     # Strip lines matching strip_lines patterns
@@ -89,7 +123,7 @@ apply_sanitization() {
         local escaped
         escaped=$(printf '%s' "$pattern" | sed 's/[[\.*^$()+?{|]/\\&/g')
         # Remove lines containing the pattern
-        sed -i '' "/${escaped}/d" "$file"
+        SED_INPLACE "/${escaped}/d" "$file"
     done
 }
 
@@ -176,6 +210,10 @@ generate_readme() {
     local skill_md="$skill_dir/SKILL.md"
     local readme="$skill_dir/README.md"
 
+    # Read configurable public repo URL (optional — omit footer line if not set)
+    local public_repo_url
+    public_repo_url=$(jq -r '.public_repo_url // ""' "$MANIFEST")
+
     # Extract description from SKILL.md (first non-heading, non-frontmatter line)
     local description
     description=$(awk '
@@ -210,12 +248,18 @@ generate_readme() {
     commands=$(extract_section "$skill_md" "### Quick Reference" "^### [^C]")
     examples=$(extract_section "$skill_md" "### Examples" "^## ")
 
+    # Build optional repo attribution line
+    local repo_line=""
+    if [[ -n "$public_repo_url" ]]; then
+        repo_line="> Part of [agent-skills](${public_repo_url})"
+    fi
+
     cat > "$readme" << READMEEOF
 # $skill_name
 
 > $description
->
-> Part of [agent-skills](https://github.com/your-username/agent-skills)
+${repo_line:+>
+$repo_line}
 
 ## Installation
 
@@ -418,11 +462,20 @@ cmd_publish() {
     local source_dir="$SKILLS_SOURCE/$name"
     local target_dir="$TARGET_REPO/skills/$name"
 
-    # Compute current file hashes
+    # Get exclude_files list for this skill (used in hash computation and copy)
+    mapfile -t excludes < <(jq -r --arg s "$name" '.skills[$s].exclude_files // [] | .[]' "$MANIFEST")
+
+    # Compute current file hashes (excluding files in exclude_files so manifest changes don't trigger false positives)
     echo "Computing file hashes..."
     local new_hashes="{}"
     while IFS= read -r -d '' file; do
         local rel="${file#$source_dir/}"
+        # Skip excluded files
+        local skip=false
+        for pat in "${excludes[@]}"; do
+            [[ "$rel" == "$pat" ]] && skip=true && break
+        done
+        $skip && continue
         local hash
         hash=$(compute_file_hash "$file")
         new_hashes=$(echo "$new_hashes" | jq --arg k "$rel" --arg v "$hash" '. + {($k): $v}')
@@ -438,18 +491,23 @@ cmd_publish() {
 
     # Copy skill to target
     echo "Copying $name to agent-skills..."
+    # Guard: ensure target_dir is inside TARGET_REPO before destructive rm
+    if [[ "$target_dir" != "$TARGET_REPO"* ]]; then
+        echo "Error: Resolved target directory '$target_dir' is outside TARGET_REPO '$TARGET_REPO'. Aborting." >&2
+        return 1
+    fi
     rm -rf "$target_dir"
     mkdir -p "$target_dir"
     # Copy everything except .DS_Store
     rsync -a --exclude='.DS_Store' "$source_dir/" "$target_dir/"
 
-    # Remove excluded files (per-skill manifest setting)
-    while IFS= read -r excl; do
+    # Remove excluded files (reuse already-computed excludes array)
+    for excl in "${excludes[@]}"; do
         if [[ -n "$excl" && -f "$target_dir/$excl" ]]; then
             rm "$target_dir/$excl"
             echo "  Excluded: $excl"
         fi
-    done < <(jq -r ".skills[\"$name\"].exclude_files // [] | .[]" "$MANIFEST" 2>/dev/null)
+    done
 
     # Apply sanitization to all text files
     echo "Sanitizing..."
@@ -495,7 +553,7 @@ cmd_publish() {
     mv "$tmp" "$MANIFEST"
 
     # Also update version in the published SKILL.md frontmatter
-    sed -i '' "s/^version: .*/version: $new_version/" "$target_dir/SKILL.md"
+    SED_INPLACE "s/^version: .*/version: $new_version/" "$target_dir/SKILL.md"
 
     # Update catalog in top-level README
     echo "Updating skill catalog..."
@@ -522,14 +580,21 @@ publish: $name v$new_version
 Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 EOF
 )"
-        git push 2>/dev/null || echo "Push skipped (no remote configured yet)"
+        if ! git push 2>&1; then
+            echo "Error: git push failed. Skill was committed locally but not pushed to remote." >&2
+            echo "Run 'git push' manually in $TARGET_REPO to complete the publish." >&2
+            cd "${PROJECT_HOME:-$SCRIPT_DIR}"
+            return 1
+        fi
     fi
-    cd "$PROJECT_HOME"
+    cd "${PROJECT_HOME:-$SCRIPT_DIR}"
 
     echo ""
     echo "Published $name v$new_version"
     echo "  Target: $TARGET_REPO/skills/$name/"
-    echo "  URL: https://github.com/your-username/agent-skills/tree/main/skills/$name"
+    if [[ -n "$public_repo_url" ]]; then
+        echo "  URL: ${public_repo_url}/tree/main/skills/$name"
+    fi
 }
 
 cmd_list() {
@@ -610,6 +675,7 @@ EOF
 # --- Main ---
 
 require_jq
+require_rsync
 
 case "${1:-}" in
     publish)    cmd_publish "$2" "${@:3}" ;;

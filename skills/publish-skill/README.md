@@ -21,7 +21,8 @@ The `--dry-run` flag stops after the security scan so you can inspect sanitized 
 ## Requirements
 
 - bash
-- jq
+- jq (`brew install jq` on macOS, `apt-get install jq` on Ubuntu)
+- rsync (pre-installed on macOS; `apt-get install rsync` on Ubuntu)
 - git
 - A public GitHub repo cloned locally (your `agent-skills` fork or equivalent)
 
@@ -122,6 +123,7 @@ Bumps the patch version, commits, and pushes to your public repo.
 |-------|-------------|
 | `target_repo` | Local path to your public agent-skills repo |
 | `project_name` | Your private project's internal name; the scan blocks publish if any file still contains it |
+| `public_repo_url` | *(optional)* Your public GitHub repo URL — shown in auto-generated README footers and success output |
 | `skills_source` | Relative path to skills directory (default: `.claude/skills`) |
 | `default_replacements` | `[{old, new}]` — applied to every published skill |
 

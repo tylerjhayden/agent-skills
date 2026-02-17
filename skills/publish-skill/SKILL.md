@@ -6,11 +6,11 @@ version: 1.0.0
 
 # publish-skill
 
-Sanitize and publish your skills to the public agent-skills GitHub repo.
+Sanitize and publish Claude Code skills to a public agent-skills GitHub repo.
 
 ## Overview
 
-Automates the process of taking a private skill, stripping internal references (paths, names, cross-references), generating user-facing docs, and pushing to the `your-username/agent-skills` public repo. Tracks versions and file hashes to detect changes.
+Automates the process of taking a private skill, stripping internal references (paths, names, cross-references), generating user-facing docs, and pushing to a public repo. Tracks versions and file hashes to detect changes.
 
 ## When to Use
 
@@ -53,6 +53,8 @@ When a README needs this level of detail, set `preserve_readme: true` in the man
 ## CLI Tool
 
 **Alias:** `publish-skill`
+**Location:** `.claude/skills/publish-skill/tools/publish-skill`
+**Requirements:** bash, jq, rsync, git
 
 ### Quick Reference
 
@@ -83,7 +85,7 @@ publish-skill help                       # Show help
 1. Verify skill exists in manifest
 2. Compute SHA256 hashes of all source files
 3. Skip if unchanged (use `--force` to override)
-4. Copy skill to `~/your-agent-skills-repo/skills/<name>/`
+4. Copy skill to `~/Projects/agent-skills/skills/<name>/`
 5. Apply sanitization (default rules + per-skill overrides)
 6. Run security scan — **hard stop** on any finding (all failures collected before aborting)
 7. Generate README.md from sanitized SKILL.md
@@ -99,5 +101,5 @@ publish-skill help                       # Show help
 | Operation | Path | Description |
 |-----------|------|-------------|
 | Config | `.claude/skills/publish-skill/publish-manifest.json` | Publish config, versions, hashes |
-| Target | `~/your-agent-skills-repo/` | Public repo (push target) |
-| Source | `.claude/skills/<name>/` | your skill source (read-only) |
+| Target | `target_repo` in manifest | Public repo (push target) |
+| Source | `.claude/skills/<name>/` | Skill source directory (read-only) |
