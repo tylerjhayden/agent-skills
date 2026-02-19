@@ -62,8 +62,7 @@ jobs:
 
           check_pattern '/Users/[a-zA-Z]' 'Hardcoded macOS home directory path' true
           check_pattern '/home/[a-zA-Z]' 'Hardcoded Linux home directory path' true
-          check_pattern 'Minerva' 'Internal project reference (case-sensitive)' true
-          check_pattern 'minerva' 'Internal project reference (lowercase)' true
+          check_pattern '[Mm]inerva' 'Internal project reference (case-insensitive)' true
 
           if [[ $FAILED -eq 1 ]]; then
             echo ""

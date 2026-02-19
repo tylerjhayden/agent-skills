@@ -72,7 +72,7 @@ Tools are standalone CLI executables — no SKILL.md required:
 ```
 tools/<name>/
   README.md         # User-facing documentation (install, PATH setup, usage)
-  tools/            # Executable(s) (bash, python, TypeScript, etc.)
+  <executable>      # Executable(s) (bash, python, TypeScript, etc.)
 ```
 
 ## Development Setup

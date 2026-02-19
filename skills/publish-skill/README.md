@@ -2,7 +2,7 @@
 
 > Sanitize and publish your private Claude Code skills to a public `agent-toolkit` repo.
 >
-> Part of [agent-toolkit](https://github.com/your-username/agent-toolkit)
+> Part of [agent-toolkit](https://github.com/tylerjhayden/agent-toolkit)
 
 ## What it does
 

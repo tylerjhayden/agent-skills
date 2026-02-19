@@ -273,7 +273,7 @@ async function setup(): Promise<void> {
 
 const args = process.argv.slice(2);
 
-if (args[0] === '--help' || args[0] === '-h') {
+if (args[0] === '--help' || args[0] === '-h' || args[0] === 'help') {
   console.log(`
 claude-usage — Fetch claude.ai session and weekly usage limits
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# pre-commit hook for agent-skills
+# pre-commit hook for agent-toolkit
 # Prevents secrets, sensitive paths, and internal references from being committed.
 #
 # Install: git config core.hooksPath .githooks
@@ -104,8 +104,7 @@ check_internal_refs() {
     local forbidden_patterns=(
         '/Users/[a-zA-Z]'          # Any absolute macOS user path
         '/home/[a-zA-Z]'           # Any absolute Linux user path
-        'Minerva'                   # Internal project name (case-sensitive)
-        'minerva'                   # Internal project name (lowercase)
+        '[Mm]inerva'                # Internal project name (case-insensitive)
     )
 
     # Allowed exceptions

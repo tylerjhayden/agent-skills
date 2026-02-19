@@ -2,14 +2,14 @@
 
 > Bear.app CLI bridge — two-way sync between filesystem markdown and Bear notes.
 >
-> Part of [agent-skills](https://github.com/tylerjhayden/agent-skills)
+> Part of [agent-toolkit](https://github.com/tylerjhayden/agent-toolkit)
 
 ## Installation
 
 Copy the skill directory into your Claude Code project:
 
 ```bash
-# From the agent-skills repo
+# From the agent-toolkit repo
 cp -r skills/bear .claude/skills/bear
 
 # Or user-level (available across all projects)

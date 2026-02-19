@@ -30,6 +30,9 @@ id_ecdsa*
 .netrc
 *.secret
 
+# Claude Code
+.claude/
+
 # Temp
 *.tmp
 *.bak

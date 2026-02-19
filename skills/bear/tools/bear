@@ -4,7 +4,7 @@
 # Import via URL scheme (safe), export via read-only SQLite queries (safe)
 #
 
-set -e
+set -euo pipefail
 
 DB_PATH="$HOME/Library/Group Containers/9K33E3U3T4.net.shinyfrog.bear/Application Data/database.sqlite"
 IMAGE_BASE="$HOME/Library/Group Containers/9K33E3U3T4.net.shinyfrog.bear/Application Data/Local Files/Note Images"
@@ -41,8 +41,9 @@ check_bear_running() {
 }
 
 query_db() {
+    local sep="${2:-|}"
     local result
-    if ! result=$(sqlite3 -separator '|' "$DB_PATH" "$1" 2>&1); then
+    if ! result=$(sqlite3 -separator "$sep" "$DB_PATH" "$1" 2>&1); then
         echo "Error: SQLite query failed: $result" >&2
         return 1
     fi
@@ -252,7 +253,7 @@ cmd_pull_all() {
     local query="SELECT ZTITLE, ZTEXT FROM ZSFNOTE WHERE ZTRASHED = 0 AND ZPERMANENTLYDELETED = 0 ORDER BY ZMODIFICATIONDATE DESC;"
 
     # Use null separator for safety
-    while IFS='|' read -r title text; do
+    while IFS=$'\t' read -r title text; do
         [[ -z "$title" ]] && continue
 
         local slug
@@ -265,7 +266,7 @@ cmd_pull_all() {
 
         echo "$cleaned" > "$filepath"
         count=$((count + 1))
-    done < <(query_db "$query")
+    done < <(query_db "$query" $'\t')
 
     echo "Exported $count notes to $output_dir/"
 }
@@ -329,7 +330,6 @@ cmd_recent() {
 }
 
 cmd_list() {
-    shift  # Remove 'list' from args
 
     check_db
 
@@ -399,13 +399,13 @@ EOF
 check_db
 
 case "${1:-}" in
-    send)       cmd_send "$2" ;;
-    pull)       cmd_pull "$2" "${3:-}" ;;
+    send)       cmd_send "${2:-}" ;;
+    pull)       cmd_pull "${2:-}" "${3:-}" ;;
     pull-all)   cmd_pull_all "${2:-./bear-export}" ;;
-    open)       cmd_open "$2" ;;
-    search)     cmd_search "$2" ;;
+    open)       cmd_open "${2:-}" ;;
+    search)     cmd_search "${2:-}" ;;
     recent)     cmd_recent "${2:-10}" ;;
-    list)       cmd_list "$@" ;;
+    list)       cmd_list "${@:2}" ;;
     help|--help|-h) cmd_help ;;
     *)
         # If arg is a .md file, treat as `bear send`

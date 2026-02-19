@@ -121,8 +121,7 @@ Tools live under `tools/` and are pure CLI executables — no `SKILL.md` require
 ```
 tools/<name>/
   README.md         # Required — user-facing docs (install, PATH/alias setup, usage)
-  tools/            # Required — executable(s) (bash, python, TypeScript, etc.)
-    <tool-name>     # Executable with shebang line
+  <executable>      # Executable(s) with shebang line (bash, python, TypeScript, etc.)
 ```
 
 ### Tool Requirements
@@ -130,6 +129,7 @@ tools/<name>/
 - No `SKILL.md` — tools are not Claude-invocable, they run from the shell
 - `README.md` must cover: what it does, installation, PATH/alias setup, usage
 - Executables must have a shebang line and be self-contained
+- Bash scripts should be executable (`chmod +x`) in the repo; TypeScript/interpreted tools should document `chmod +x` in their README for post-install setup
 - Include a `help` subcommand
 - Use `set -e` in bash scripts
 
@@ -141,7 +141,7 @@ Before submitting a tool:
 - [ ] `README.md` with install and alias/PATH setup instructions
 - [ ] No hardcoded user paths (`/Users/...`, `~/specific-project/`)
 - [ ] No API keys, tokens, or credentials in any files
-- [ ] Tools are executable (`chmod +x`)
+- [ ] Bash scripts are executable (`chmod +x`); interpreted tools document post-install `chmod +x` in README
 - [ ] `help` command works
 - [ ] Tested on a clean install
 

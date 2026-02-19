@@ -57,4 +57,4 @@ Hidden directories (`*/.*`) are always excluded automatically.
 
 | Operation | Path | Description |
 |-----------|------|-------------|
-| Reads/Writes | `state/mde/config.json` | MacDown 3000 CLI configuration |
+| Reads/Writes | `~/.config/mde/config.json` (or `$MDE_CONFIG_DIR`) | MacDown 3000 CLI configuration |

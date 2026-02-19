@@ -1,4 +1,4 @@
-title = "agent-skills gitleaks config"
+title = "agent-toolkit gitleaks config"
 
 # Custom rules to prevent internal references from leaking into this public repo.
 # These supplement gitleaks' built-in secret detection rules.

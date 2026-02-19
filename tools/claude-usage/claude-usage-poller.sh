@@ -24,7 +24,11 @@ BUN="${HOME}/.bun/bin/bun"
 CACHE="$PROJECT_HOME/runtime/claude-usage/cache.json"
 
 log() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*" >> "$LOG"; }
-# NOTE: Replace 'my-project' and 'com.myproject' with your own project name throughout this file.
+# NOTE: Before installing, customize these variables for your project:
+#   - PROJECT_HOME (line 20): your project root directory
+#   - SCRIPT (line 21): path to claude-usage.ts
+#   - LOG (line 22): log file path
+#   - Replace 'com.myproject' in your LaunchAgent plist with your reverse-domain identifier
 
 # Gate 1: Skip if no active Claude Code session
 if ! pgrep -xq "claude" 2>/dev/null; then

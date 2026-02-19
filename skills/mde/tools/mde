@@ -4,7 +4,7 @@
 # Opens markdown files with smart recent-file features
 #
 
-set -e
+set -euo pipefail
 
 CONFIG_DIR="${MDE_CONFIG_DIR:-$HOME/.config/mde}"
 CONFIG_FILE="$CONFIG_DIR/config.json"
@@ -174,10 +174,10 @@ case "${1:-}" in
         cmd_excludes
         ;;
     exclude)
-        cmd_exclude "$2"
+        cmd_exclude "${2:-}"
         ;;
     unexclude)
-        cmd_unexclude "$2"
+        cmd_unexclude "${2:-}"
         ;;
     help|--help|-h)
         cmd_help

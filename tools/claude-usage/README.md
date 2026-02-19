@@ -122,9 +122,14 @@ Sonnet 4.5 | main | 27% ctx                   # no cache yet (poller hasn't run)
     "resets_at": "2026-02-17T21:30:00Z"
   },
   "seven_day": {
-    "all_models": { "utilization": 28 },
-    "sonnet": { "utilization": 19 }
-  }
+    "utilization": 28,
+    "resets_at": "2026-02-24T00:00:00Z"
+  },
+  "seven_day_sonnet": {
+    "utilization": 19,
+    "resets_at": "2026-02-24T00:00:00Z"
+  },
+  "error": null
 }
 ```
 
