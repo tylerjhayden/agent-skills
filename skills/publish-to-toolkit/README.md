@@ -1,0 +1,207 @@
+# publish-to-toolkit
+
+> Sanitize and publish your private Claude Code skills to a public `agent-toolkit` repo.
+>
+> Part of [agent-toolkit](https://github.com/your-username/agent-toolkit)
+
+## What it does
+
+`publish-to-toolkit` automates the full contribution pipeline from private project to public repo:
+
+1. **Copy** the skill directory to your public `agent-toolkit` repo
+2. **Sanitize** — strip internal paths, project names, and private references via configurable replacement rules
+3. **Exclude** — omit private config files entirely (e.g. your own `publish-manifest.json`)
+4. **Security scan** — hard stop on any PII, API keys, hardcoded paths, or runtime files that slipped through
+5. **Generate or preserve README** — auto-generate from `SKILL.md`, or preserve a handcrafted one
+6. **Version bump** — patch/minor/major, tracked in the manifest
+7. **Commit and push** — targeted `git add` on the skill directory, never `git add -A`
+
+The `--dry-run` flag stops after the security scan so you can inspect sanitized output before committing anything.
+
+## Requirements
+
+- bash
+- jq (`brew install jq` on macOS, `apt-get install jq` on Ubuntu)
+- rsync (pre-installed on macOS; `apt-get install rsync` on Ubuntu)
+- git
+- A public GitHub repo cloned locally (your `agent-toolkit` fork or equivalent)
+
+## Installation
+
+Copy the skill into your Claude Code project:
+
+```bash
+# Project-level
+cp -r skills/publish-to-toolkit .claude/skills/publish-to-toolkit
+
+# Or user-level (available across all projects)
+cp -r skills/publish-to-toolkit ~/.claude/skills/publish-to-toolkit
+```
+
+Add the CLI tool to your PATH. Add one of the following to your shell profile (`~/.zshrc` or `~/.bashrc`):
+
+```bash
+# If installed at project level
+alias publish-to-toolkit="/path/to/your-project/.claude/skills/publish-to-toolkit/tools/publish-to-toolkit"
+
+# If installed at user level
+alias publish-to-toolkit="$HOME/.claude/skills/publish-to-toolkit/tools/publish-to-toolkit"
+```
+
+Then reload your shell:
+
+```bash
+source ~/.zshrc
+```
+
+## Setup
+
+### 1. Create your public repo
+
+Create a GitHub repo (e.g. `your-username/agent-toolkit`) and clone it locally:
+
+```bash
+git clone https://github.com/your-username/agent-toolkit ~/your-agent-toolkit-repo
+```
+
+### 2. Configure the manifest
+
+Copy the example manifest and customize it:
+
+```bash
+cp .claude/skills/publish-to-toolkit/publish-manifest.example.json \
+   .claude/skills/publish-to-toolkit/publish-manifest.json
+```
+
+Edit `publish-manifest.json`:
+- Set `target_repo` to the path of your cloned public repo
+- Update `default_replacements` with your project's internal names and paths
+- Leave `skills: {}` empty — `init` populates it
+
+### 3. Initialize your first skill
+
+```bash
+publish-to-toolkit init my-skill
+```
+
+This adds `my-skill` to the manifest with default config. Open `publish-manifest.json` and add any `extra_replacements`, `strip_lines`, or `exclude_files` needed for that skill.
+
+### 4. Dry run
+
+```bash
+publish-to-toolkit publish my-skill --dry-run
+```
+
+Inspect the sanitized output at `~/your-agent-toolkit-repo/skills/my-skill/`. Confirm no private references remain.
+
+### 5. Publish
+
+```bash
+publish-to-toolkit publish my-skill
+```
+
+Bumps the patch version, commits, and pushes to your public repo.
+
+## Command Reference
+
+| Command | Description |
+|---------|-------------|
+| `publish-to-toolkit publish <name>` | Full publish: sanitize, scan, copy, version bump, commit, push |
+| `publish-to-toolkit publish <name> --dry-run` | Sanitize and scan only — no commit or push |
+| `publish-to-toolkit publish <name> --force` | Publish even if source files are unchanged |
+| `publish-to-toolkit publish <name> --bump minor` | Bump minor version instead of patch |
+| `publish-to-toolkit list` | Show all skills with version and publish status |
+| `publish-to-toolkit diff <name>` | Diff local source against published version |
+| `publish-to-toolkit init <name>` | Add a skill to the manifest |
+| `publish-to-toolkit help` | Show usage |
+
+## Manifest Configuration
+
+### Top-level fields
+
+| Field | Description |
+|-------|-------------|
+| `target_repo` | Local path to your public agent-toolkit repo |
+| `project_name` | Your private project's internal name; the scan blocks publish if any file still contains it |
+| `public_repo_url` | *(optional)* Your public GitHub repo URL — shown in auto-generated README footers and success output |
+| `skills_source` | Relative path to skills directory (default: `.claude/skills`) |
+| `default_replacements` | `[{old, new}]` — applied to every published skill |
+
+### Per-skill fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `published` | boolean | `true` once the skill has been pushed at least once |
+| `version` | semver | Bumped automatically on each publish |
+| `last_published` | ISO 8601 | Set automatically |
+| `files_hash` | object | SHA256 map of source files, used for change detection |
+| `requirements` | string[] | Shown in the auto-generated README Requirements section |
+| `preserve_readme` | boolean | If `true`, your handcrafted `README.md` is kept as-is |
+| `exclude_files` | string[] | Relative paths to omit entirely from the published output |
+| `strip_lines` | string[] | Lines containing any of these strings are deleted from all files |
+| `extra_replacements` | `[{old, new}]` | Applied after `default_replacements` |
+
+## Security Scan
+
+The security scan runs after sanitization and blocks publish on any of:
+
+| Check | Blocks on |
+|-------|-----------|
+| Internal project name | Any file containing the value of `project_name` from your manifest (if set) |
+| Personal paths | `/Users/<anything>` |
+| Email addresses | Any email (except `noreply@anthropic.com`) |
+| API keys / tokens | `ghp_*`, `ghs_*`, `AKIA*`, `sk-*`, `Bearer <long>` |
+| Runtime files | `browser-state.json`, `cache.json`, `*.tmp` |
+
+All failures are collected before aborting — you see everything that needs fixing in one pass.
+
+If the scan blocks your publish, either:
+- Add a replacement rule to `extra_replacements` to sanitize the value
+- Add the file to `exclude_files` to omit it entirely
+- Add the offending line pattern to `strip_lines` to delete it
+
+## Two-Audience Doctrine: SKILL.md vs README.md
+
+These files serve different readers:
+
+| | SKILL.md | README.md |
+|---|---|---|
+| **Audience** | The AI agent | Humans installing the skill |
+| **Tone** | Dense, operational | Explanatory, setup-focused |
+| **Contains** | Trigger phrases, commands, data locations | Installation, PATH setup, first-time config |
+
+**SKILL.md burns tokens.** Every line costs context window. Keep it tight.
+
+**README.md must work before the AI is involved.** A human follows it to install the skill — they can't ask Claude for help yet.
+
+For skills with CLI tools, set `preserve_readme: true` in the manifest. The auto-generated README from `SKILL.md` is always too sparse for tools that need shell aliases and first-time config steps.
+
+## Publishing Tools (vs Skills)
+
+The `agent-toolkit` repo supports two categories:
+
+| Category | Directory | Has SKILL.md | Claude-aware |
+|----------|-----------|-------------|--------------|
+| `skills` | `skills/<name>/` | Yes | Yes — Claude invokes it |
+| `tools`  | `tools/<name>/`  | No  | No — pure CLI, run directly |
+
+To publish an entry as a tool, add `"category": "tools"` to its entry in `publish-manifest.json`:
+
+```json
+"my-tool": {
+  "category": "tools",
+  "preserve_readme": true,
+  ...
+}
+```
+
+The publish flow will automatically:
+- Place the output in `tools/<name>/` instead of `skills/<name>/`
+- Remove `SKILL.md` from the published artifact
+- Update the Tools table in the public README instead of the Skills table
+
+Tools require `preserve_readme: true` — auto-generated READMEs are built from SKILL.md, which tools don't have. Write the README manually and set the flag.
+
+## Contributing
+
+See [CONTRIBUTING.md](../../CONTRIBUTING.md) for the skill format and PR checklist.

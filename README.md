@@ -15,13 +15,13 @@ Curated Claude Code skills and CLI tools — ready to drop into any project.
 |-------|-------------|----------|---------|
 | [bear](skills/bear/) | Bear.app CLI bridge — two-way sync between filesystem markdown and Bear notes. | macOS | 1.0.0 |
 | [mde](skills/mde/) | MacDown 3000 CLI with smart recent-file discovery. | macOS | 1.0.1 |
-| [publish-skill](skills/publish-skill/) | Sanitize and publish your skills and tools to the public agent-toolkit GitHub repo. | any | 1.0.1 |
+| [publish-to-toolkit](skills/publish-to-toolkit/) | Sanitize and publish your skills and tools to the public agent-toolkit GitHub repo. | any | 1.0.2 |
 
 ## Tools
 
 | Tool | Description | Platform | Version |
 |------|-------------|----------|---------|
-| [claude-usage](tools/claude-usage/) | Fetches real-time claude.ai session and weekly usage limits using headless Playwright to bypass Cloudflare TLS fingerprinting, then displays progress bars per model tier. Includes a background poller that keeps a cache file fresh for the statusline. | macOS | 1.0.2 |
+| [claude-usage](tools/claude-usage/) | > Fetches real-time claude.ai session and weekly usage limits using headless Playwright to bypass Cloudflare TLS fingerprinting, then displays progress bars per model tier. Includes a background poller that keeps a cache file fresh for statusline integration. | macOS | 1.0.2 |
 
 ## Installation
 

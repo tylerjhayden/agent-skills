@@ -1,0 +1,59 @@
+{
+    "target_repo": "~/your-agent-toolkit-repo",
+    "project_name": "YourProject",
+    "public_repo_url": "https://github.com/your-username/agent-toolkit",
+    "skills_source": ".claude/skills",
+    "default_replacements": [
+        {
+            "old": "for YourProject",
+            "new": "for Claude Code"
+        },
+        {
+            "old": "YourProject's",
+            "new": "your"
+        },
+        {
+            "old": "~/YourProject/",
+            "new": "~/my-project/"
+        },
+        {
+            "old": "~/YourProject",
+            "new": "~/my-project"
+        }
+    ],
+    "skills": {
+        "_schema_comment": "Per-skill configuration. Each key is the skill directory name.",
+        "_schema_fields": {
+            "project_name": "top-level string — your private project name; the scan checks that this string doesn't appear in any published file",
+            "public_repo_url": "top-level string (optional) — your public GitHub repo URL (e.g. https://github.com/you/agent-skills); shown in auto-generated README footers and success output",
+            "published": "boolean — true once the skill has been pushed at least once",
+            "version": "semver string — bumped automatically on each publish",
+            "last_published": "ISO 8601 timestamp, set automatically",
+            "files_hash": "SHA256 map of source files, used for change detection",
+            "requirements": "array of strings shown in README Requirements section",
+            "preserve_readme": "boolean — if true, your handcrafted README.md is kept instead of being regenerated",
+            "exclude_files": "array of relative paths to omit from the published output (e.g. private config files)",
+            "strip_lines": "array of strings — lines containing any of these are removed from all files",
+            "extra_replacements": "array of {old, new} objects applied after default_replacements"
+        },
+        "my-skill": {
+            "published": false,
+            "version": "1.0.0",
+            "last_published": null,
+            "files_hash": {},
+            "requirements": [
+                "bash",
+                "jq",
+                "rsync"
+            ],
+            "preserve_readme": false,
+            "exclude_files": [],
+            "strip_lines": [
+                "**Location:** `.claude/skills/my-skill/tools/my-skill`"
+            ],
+            "extra_replacements": [
+                { "old": "my-internal-name", "new": "my-public-name" }
+            ]
+        }
+    }
+}
