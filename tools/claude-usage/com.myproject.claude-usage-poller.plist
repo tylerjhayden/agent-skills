@@ -24,8 +24,9 @@
 
     <key>EnvironmentVariables</key>
     <dict>
+        <!-- NOTE: launchd does NOT expand $HOME — replace with your literal home path -->
         <key>PATH</key>
-        <string>$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <string>/Users/<your-username>/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
         <key>SYSTEM_DIR</key>
         <string><path-to-project></string>
     </dict>

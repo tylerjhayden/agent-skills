@@ -28,6 +28,16 @@ import { join } from 'node:path';
 import { chromium } from 'playwright';
 import { buildHelp, die, outputJson, parse, resolveProjectHome } from '../cli.ts';
 
+// ─── Validation ──────────────────────────────────────────────────────────────
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function validateOrgId(orgId: string): void {
+  if (!UUID_RE.test(orgId)) {
+    die('Invalid org ID format — must be a UUID (e.g., 550e8400-e29b-41d4-a716-446655440000).');
+  }
+}
+
 // ─── Runtime paths ────────────────────────────────────────────────────────────
 
 const PROJECT_HOME = resolveProjectHome();
@@ -150,7 +160,7 @@ function writeCacheError(error: string): void {
 async function fetchUsage(orgId: string, sessionKey: string): Promise<UsageResponse> {
   const browser = await chromium.launch({
     headless: true,
-    args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'],
+    args: ['--disable-blink-features=AutomationControlled'],
   });
 
   // Load storage state if fresh (skips Cloudflare warm-up)
@@ -220,15 +230,23 @@ async function fetchUsage(orgId: string, sessionKey: string): Promise<UsageRespo
     );
 
     if (status !== 200) {
-      throw new Error(`HTTP ${status}: ${rawText?.substring(0, 200)}`);
+      // Detect specific error conditions without leaking raw API response
+      const isSessionInvalid = rawText?.includes('account_session_invalid');
+      throw new Error(
+        isSessionInvalid
+          ? `HTTP ${status}: account_session_invalid`
+          : `HTTP ${status} from usage API`,
+      );
     }
 
     const data = JSON.parse(rawText ?? '{}') as UsageResponse;
 
-    // Persist storage state for next run (skip warm-up)
+    // Persist storage state atomically (contains session cookies)
     mkdirSync(RUNTIME_DIR, { recursive: true });
-    await context.storageState({ path: STORAGE_STATE_PATH });
-    chmodSync(STORAGE_STATE_PATH, 0o600); // contains session cookies — owner-only
+    const tmpState = `${STORAGE_STATE_PATH}.tmp`;
+    await context.storageState({ path: tmpState });
+    renameSync(tmpState, STORAGE_STATE_PATH);
+    chmodSync(STORAGE_STATE_PATH, 0o600); // owner-only
 
     return data;
   } finally {
@@ -290,6 +308,8 @@ async function setup(): Promise<void> {
     die('Aborted — both values required.');
   }
 
+  validateOrgId(orgId);
+
   keychainSet('session-key', sessionKey);
   keychainSet('org-id', orgId);
 
@@ -312,7 +332,7 @@ const { values, positionals } = parse({
   allowPositionals: true,
 });
 
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 
 if (values.version) {
   console.log(VERSION);
@@ -389,6 +409,8 @@ if (!sessionKey || !orgId) {
   }
   die('No credentials found. Run: claude-usage setup');
 }
+
+validateOrgId(orgId);
 
 const cacheMode = values.cache as boolean;
 
