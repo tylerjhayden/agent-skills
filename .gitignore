@@ -37,3 +37,4 @@ id_ecdsa*
 *.tmp
 *.bak
 *.log
+CLAUDE.md
